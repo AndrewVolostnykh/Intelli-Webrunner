@@ -1,0 +1,19 @@
+<idea-plugin>
+    <id>intelli-webrunner</id>
+    <name>Intelli Webrunner</name>
+    <vendor email="support@example.com">Intelli Webrunner</vendor>
+    <description>API testing tool window with HTTP, gRPC, and chain execution.</description>
+    <version>0.1.6</version>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.json</depends>
+    <depends>com.intellij.java</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <applicationService serviceImplementation="com.intelli.webrunner.state.GlobalWebrunnerStateService"/>
+        <toolWindow id="Intelli Webrunner"
+                    anchor="right"
+                    icon="/icons/toolWindow.svg"
+                    factoryClass="com.intelli.webrunner.toolwindow.WebrunnerToolWindowFactory"/>
+    </extensions>
+</idea-plugin>

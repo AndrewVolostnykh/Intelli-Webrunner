@@ -1,0 +1,40 @@
+plugins {
+    id 'java'
+    id 'org.jetbrains.intellij' version '1.17.3'
+}
+
+group = 'com.intelli.webrunner'
+version = '0.3.0'
+
+repositories {
+    mavenCentral()
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+intellij {
+    version = '2024.2.3'
+    type = 'IU'
+    plugins = ['java']
+    instrumentCode = false
+    updateSinceUntilBuild = false
+}
+
+patchPluginXml {
+    sinceBuild = '242'
+    untilBuild = null
+}
+
+dependencies {
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.2'
+    implementation 'io.grpc:grpc-netty-shaded:1.63.0'
+    implementation 'io.grpc:grpc-protobuf:1.63.0'
+    implementation 'io.grpc:grpc-stub:1.63.0'
+    implementation 'io.grpc:grpc-services:1.63.0'
+    implementation 'com.google.protobuf:protobuf-java-util:3.25.3'
+    implementation 'org.mozilla:rhino:1.7.14'
+}
