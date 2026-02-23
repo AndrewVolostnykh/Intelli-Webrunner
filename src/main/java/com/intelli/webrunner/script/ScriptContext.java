@@ -5,13 +5,22 @@ public class ScriptContext {
     public final ScriptLogger log;
     public final ScriptHelpers helpers;
     public final ScriptRequest request;
+    public final ScriptRequest rawRequest;
     public final Object response;
 
-    public ScriptContext(VarsStore vars, ScriptLogger log, ScriptHelpers helpers, ScriptRequest request, Object response) {
+    public ScriptContext(
+        VarsStore vars,
+        ScriptLogger log,
+        ScriptHelpers helpers,
+        ScriptRequest request,
+        ScriptRequest rawRequest,
+        Object response
+    ) {
         this.vars = vars;
         this.log = log;
         this.helpers = helpers;
         this.request = request;
+        this.rawRequest = rawRequest;
         this.response = response;
     }
 }

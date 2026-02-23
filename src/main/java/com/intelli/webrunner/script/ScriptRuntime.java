@@ -25,8 +25,10 @@ public class ScriptRuntime {
         Context cx = Context.enter();
         try {
             Scriptable scope = cx.initStandardObjects();
-            Scriptable requestObj = buildScriptRequest(context, cx, scope);
+            Scriptable requestObj = buildScriptRequest(context.request, cx, scope);
+            Scriptable rawRequestObj = buildScriptRequest(context.rawRequest, cx, scope);
             Scriptable responseObj = buildScriptResponse(context, cx, scope);
+            Scriptable varsObj = buildVarsObject(context, cx, scope);
 
             BaseFunction logFn = new BaseFunction() {
                 @Override
@@ -36,7 +38,7 @@ public class ScriptRuntime {
                         if (i > 0) {
                             builder.append(' ');
                         }
-                        builder.append(String.valueOf(args[i]));
+                        builder.append(formatLogValue(args[i], cx, scope));
                     }
                     context.log.log(builder.toString());
                     return null;
@@ -112,16 +114,18 @@ public class ScriptRuntime {
             };
 
             Scriptable contextObj = cx.newObject(scope);
-            ScriptableObject.putProperty(contextObj, "vars", Context.javaToJS(context.vars, scope));
+            ScriptableObject.putProperty(contextObj, "vars", varsObj);
             ScriptableObject.putProperty(contextObj, "log", logFn);
             ScriptableObject.putProperty(contextObj, "helpers", Context.javaToJS(context.helpers, scope));
             ScriptableObject.putProperty(contextObj, "request", requestObj);
+            ScriptableObject.putProperty(contextObj, "rawRequest", rawRequestObj);
             ScriptableObject.putProperty(contextObj, "response", responseObj);
             ScriptableObject.putProperty(contextObj, "stringify", stringifyFn);
             ScriptableObject.putProperty(contextObj, "jsonify", jsonifyFn);
 
-            ScriptableObject.putProperty(scope, "vars", Context.javaToJS(context.vars, scope));
+            ScriptableObject.putProperty(scope, "vars", varsObj);
             ScriptableObject.putProperty(scope, "request", requestObj);
+            ScriptableObject.putProperty(scope, "rawRequest", rawRequestObj);
             ScriptableObject.putProperty(scope, "response", responseObj);
             ScriptableObject.putProperty(scope, "context", contextObj);
             ScriptableObject.putProperty(scope, "log", logFn);
@@ -137,12 +141,15 @@ public class ScriptRuntime {
         }
     }
 
-    private Scriptable buildScriptRequest(ScriptContext context, Context cx, Scriptable scope) {
+    private Scriptable buildScriptRequest(ScriptRequest request, Context cx, Scriptable scope) {
         Scriptable requestObj = cx.newObject(scope);
-        Object requestBody = buildScriptBody(context.request.getBody(), cx, scope);
+        if (request == null) {
+            return requestObj;
+        }
+        Object requestBody = buildScriptBody(request.getBody(), cx, scope);
         ScriptableObject.putProperty(requestObj, "body", requestBody);
-        ScriptableObject.putProperty(requestObj, "headers", buildHeaderArray(context.request.getHeaders(), cx, scope));
-        ScriptableObject.putProperty(requestObj, "params", buildHeaderArray(context.request.getParams(), cx, scope));
+        ScriptableObject.putProperty(requestObj, "headers", buildHeaderArray(request.getHeaders(), cx, scope));
+        ScriptableObject.putProperty(requestObj, "params", buildHeaderArray(request.getParams(), cx, scope));
         return requestObj;
     }
 
@@ -242,6 +249,69 @@ public class ScriptRuntime {
             return Context.jsToJava(scriptValue, Object.class);
         }
         return javaValue;
+    }
+
+    private String formatLogValue(Object value, Context cx, Scriptable scope) {
+        if (value == null || value instanceof Undefined) {
+            return "null";
+        }
+        if (value instanceof String str) {
+            return str;
+        }
+        try {
+            Object javaValue = Context.jsToJava(value, Object.class);
+            Object normalized = normalizeScriptValue(value, javaValue);
+            if (normalized instanceof Map || normalized instanceof List) {
+                return mapper.writeValueAsString(normalized);
+            }
+            return String.valueOf(normalized);
+        } catch (Exception ignored) {
+            return String.valueOf(value);
+        }
+    }
+
+    private Scriptable buildVarsObject(ScriptContext context, Context cx, Scriptable scope) {
+        Scriptable varsObj = cx.newObject(scope);
+
+        BaseFunction getFn = new BaseFunction() {
+            @Override
+            public Object call(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
+                if (args.length == 0) {
+                    return Undefined.instance;
+                }
+                String key = String.valueOf(args[0]);
+                Object value = context.vars.get(key);
+                return toNativeJs(value, cx, scope);
+            }
+        };
+
+        BaseFunction setFn = new BaseFunction() {
+            @Override
+            public Object call(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
+                if (args.length == 0) {
+                    return null;
+                }
+                String key = String.valueOf(args[0]);
+                Object value = args.length > 1 ? args[1] : null;
+                Object javaValue = Context.jsToJava(value, Object.class);
+                Object normalized = normalizeScriptValue(value, javaValue);
+                context.vars.add(key, normalized);
+                return null;
+            }
+        };
+
+        BaseFunction allFn = new BaseFunction() {
+            @Override
+            public Object call(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
+                return toNativeJs(context.vars.entries(), cx, scope);
+            }
+        };
+
+        ScriptableObject.putProperty(varsObj, "get", getFn);
+        ScriptableObject.putProperty(varsObj, "set", setFn);
+        ScriptableObject.putProperty(varsObj, "add", setFn);
+        ScriptableObject.putProperty(varsObj, "all", allFn);
+        return varsObj;
     }
 
     private void updateParamsFromScript(ScriptContext context, Scriptable requestObj) {

@@ -121,6 +121,8 @@ import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.KeyboardFocusManager;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
@@ -145,6 +147,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 public class WebrunnerToolWindowPanel {
 
@@ -176,14 +180,16 @@ public class WebrunnerToolWindowPanel {
 	private final JComboBox<String> httpMethodCombo =
 		new JComboBox<>(new String[] {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"});
 	private final JBTextField httpUrlField = new JBTextField();
-	private final JButton httpSendButton = new JButton("Send");
+	private final JButton httpSendButton = new JButton(AllIcons.Actions.Execute);
+	private final JButton httpDebugButton = new JButton(AllIcons.Actions.StartDebugger);
 	private final JBLabel httpStatusLabel = new JBLabel("");
 
 	private final JBTextField grpcTargetField = new JBTextField();
 	private final JComboBox<String> grpcServiceCombo = new JComboBox<>();
 	private final JComboBox<String> grpcMethodCombo = new JComboBox<>();
-	private final JButton grpcReloadButton = new JButton("Reload");
-	private final JButton grpcSendButton = new JButton("Send");
+	private final JButton grpcReloadButton = new JButton(AllIcons.Actions.Refresh);
+	private final JButton grpcSendButton = new JButton(AllIcons.Actions.Execute);
+	private final JButton grpcDebugButton = new JButton(AllIcons.Actions.StartDebugger);
 	private final JBLabel grpcStatusLabel = new JBLabel("");
 
 	private final CardLayout requestTopCards = new CardLayout();
@@ -264,6 +270,7 @@ public class WebrunnerToolWindowPanel {
 	private boolean isGrpcReloading = false;
 
 	private ChainSession chainSession;
+	private DebugCallSession debugCallSession;
 
 	public WebrunnerToolWindowPanel(Project project) {
 		this.project = project;
@@ -389,12 +396,20 @@ public class WebrunnerToolWindowPanel {
 	private JPanel buildHttpTopBar() {
 		JPanel topBar = new JPanel(new FlowLayout(FlowLayout.LEFT));
 		httpUrlField.setColumns(40);
+		httpSendButton.setToolTipText("Send");
+		httpSendButton.setMargin(new Insets(0, 0, 0, 0));
+		httpSendButton.setPreferredSize(new Dimension(28, 28));
+		httpDebugButton.setToolTipText("Debug Call");
+		httpDebugButton.setMargin(new Insets(0, 0, 0, 0));
+		httpDebugButton.setPreferredSize(new Dimension(28, 28));
 		topBar.add(httpMethodCombo);
 		topBar.add(new JLabel("URL"));
 		topBar.add(httpUrlField);
 		topBar.add(httpSendButton);
+		topBar.add(httpDebugButton);
 		topBar.add(createRequestMenuButton());
 		httpSendButton.addActionListener(e -> executeHttp());
+		httpDebugButton.addActionListener(e -> startDebugCall());
 		return topBar;
 	}
 
@@ -439,6 +454,16 @@ public class WebrunnerToolWindowPanel {
 		constraints.fill = GridBagConstraints.HORIZONTAL;
 		topBar.add(grpcMethodCombo, constraints);
 
+		grpcReloadButton.setToolTipText("Reload");
+		grpcReloadButton.setMargin(new Insets(0, 0, 0, 0));
+		grpcReloadButton.setPreferredSize(new Dimension(28, 28));
+		grpcSendButton.setToolTipText("Send");
+		grpcSendButton.setMargin(new Insets(0, 0, 0, 0));
+		grpcSendButton.setPreferredSize(new Dimension(28, 28));
+		grpcDebugButton.setToolTipText("Debug Call");
+		grpcDebugButton.setMargin(new Insets(0, 0, 0, 0));
+		grpcDebugButton.setPreferredSize(new Dimension(28, 28));
+
 		constraints.gridx = 6;
 		constraints.weightx = 0;
 		constraints.fill = GridBagConstraints.NONE;
@@ -448,6 +473,9 @@ public class WebrunnerToolWindowPanel {
 		topBar.add(grpcSendButton, constraints);
 
 		constraints.gridx = 8;
+		topBar.add(grpcDebugButton, constraints);
+
+		constraints.gridx = 9;
 		JButton menuButton = createRequestMenuButton();
 		menuButton.setPreferredSize(new Dimension(28, 28));
 		menuButton.setMargin(new Insets(0, 0, 0, 0));
@@ -455,6 +483,7 @@ public class WebrunnerToolWindowPanel {
 
 		grpcReloadButton.addActionListener(e -> reloadGrpcServices());
 		grpcSendButton.addActionListener(e -> executeGrpc());
+		grpcDebugButton.addActionListener(e -> startDebugCall());
 		return topBar;
 	}
 
@@ -2780,10 +2809,14 @@ public class WebrunnerToolWindowPanel {
 		List<String> logs = new ArrayList<>();
 		ScriptLogger logger = message -> logs.add(message);
 		ScriptHelpers helpers = new ScriptHelpers(logger);
+		ScriptRequest rawRequest = new ScriptRequest(body, cloneHeaders(headers), cloneHeaders(params));
 		ScriptRequest scriptRequest = new ScriptRequest(body, cloneHeaders(headers), cloneHeaders(params));
 
 		try {
-			scriptRuntime.runScript(before, new ScriptContext(vars, logger, helpers, scriptRequest, null));
+			scriptRuntime.runScript(
+				before,
+				new ScriptContext(vars, logger, helpers, scriptRequest, rawRequest, null)
+			);
 		} catch (Exception error) {
 			logs.add("Before request error: " + error.getMessage());
 			return ExecutionResult.failure(logs);
@@ -2801,13 +2834,21 @@ public class WebrunnerToolWindowPanel {
 			HttpExecutionResponse response =
 				httpExecutor.execute(method, templatedUrl, templatedHeaders, templatedBody);
 			try {
-				scriptRuntime.runScript(after, new ScriptContext(vars, logger, helpers,
-																 new ScriptRequest(
-																	 templatedBody,
-																	 templatedHeaders,
-																	 templatedParams
-																 ), response
-				));
+				scriptRuntime.runScript(
+					after,
+					new ScriptContext(
+						vars,
+						logger,
+						helpers,
+						new ScriptRequest(
+							templatedBody,
+							templatedHeaders,
+							templatedParams
+						),
+						rawRequest,
+						response
+					)
+				);
 			} catch (Exception error) {
 				logs.add("After request error: " + error.getMessage());
 			}
@@ -2838,10 +2879,14 @@ public class WebrunnerToolWindowPanel {
 		List<String> logs = new ArrayList<>();
 		ScriptLogger logger = message -> logs.add(message);
 		ScriptHelpers helpers = new ScriptHelpers(logger);
+		ScriptRequest rawRequest = new ScriptRequest(body, cloneHeaders(headers), cloneHeaders(params));
 		ScriptRequest scriptRequest = new ScriptRequest(body, cloneHeaders(headers), cloneHeaders(params));
 
 		try {
-			scriptRuntime.runScript(before, new ScriptContext(vars, logger, helpers, scriptRequest, null));
+			scriptRuntime.runScript(
+				before,
+				new ScriptContext(vars, logger, helpers, scriptRequest, rawRequest, null)
+			);
 		} catch (Exception error) {
 			logs.add("Before request error: " + error.getMessage());
 			return ExecutionResult.failure(logs);
@@ -2861,13 +2906,21 @@ public class WebrunnerToolWindowPanel {
 																  templatedHeaders
 			);
 			try {
-				scriptRuntime.runScript(after, new ScriptContext(vars, logger, helpers,
-																 new ScriptRequest(
-																	 templatedBody,
-																	 templatedHeaders,
-																	 templatedParams
-																 ), response
-				));
+				scriptRuntime.runScript(
+					after,
+					new ScriptContext(
+						vars,
+						logger,
+						helpers,
+						new ScriptRequest(
+							templatedBody,
+							templatedHeaders,
+							templatedParams
+						),
+						rawRequest,
+						response
+					)
+				);
 			} catch (Exception error) {
 				logs.add("After request error: " + error.getMessage());
 			}
@@ -4881,6 +4934,19 @@ public class WebrunnerToolWindowPanel {
 		dialog.setVisible(true);
 	}
 
+	private void startDebugCall() {
+		if (currentNode == null || currentNode.type != NodeType.REQUEST ||
+			currentNode.requestType == RequestType.CHAIN) {
+			return;
+		}
+		saveCurrentEditors();
+		if (debugCallSession != null) {
+			debugCallSession.abandon(true);
+		}
+		debugCallSession = new DebugCallSession(currentNode.id, currentNode.requestType);
+		debugCallSession.open();
+	}
+
 	private static class ExecutionResult {
 
 		final int statusCode;
@@ -4905,6 +4971,545 @@ public class WebrunnerToolWindowPanel {
 
 		static ExecutionResult failure(List<String> logs) {
 			return new ExecutionResult(0, "", "", "{}", String.join("\n", logs));
+		}
+	}
+
+	private static final class DebugStageResult {
+
+		final String stageName;
+		final long durationNanos;
+		final List<String> lines;
+		final boolean hasNext;
+
+		DebugStageResult(
+			String stageName,
+			long durationNanos,
+			List<String> lines,
+			boolean hasNext
+		) {
+			this.stageName = stageName;
+			this.durationNanos = durationNanos;
+			this.lines = lines;
+			this.hasNext = hasNext;
+		}
+	}
+
+	private class DebugCallSession {
+
+		private final String requestId;
+		private final RequestType requestType;
+		private final RequestDetailsState details;
+		private final RequestStatusState status;
+
+		private JDialog dialog;
+		private JBTextArea outputArea;
+		private JBTextField inlineScriptField;
+		private JButton inlineRunButton;
+		private JButton nextButton;
+		private JButton abandonButton;
+
+		private int stepIndex = 1;
+		private volatile boolean abandoned = false;
+		private Future<?> pendingTask;
+
+		private VarsStore vars;
+		private ScriptHelpers helpers;
+		private ScriptLogger logger;
+		private List<String> logs;
+		private List<String> beforeLogs = List.of();
+		private List<String> afterLogs = List.of();
+		private ScriptRequest rawRequest;
+		private ScriptRequest beforeRequest;
+		private ScriptRequest afterRequest;
+		private ScriptRequest currentRequest;
+		private String templatedBody = "";
+		private List<HeaderEntryState> templatedHeaders = List.of();
+		private List<HeaderEntryState> templatedParams = List.of();
+		private String templatedUrl = "";
+		private HttpExecutionResponse httpResponse;
+		private GrpcExecutionResponse grpcResponse;
+		private boolean beforeFailed = false;
+		private boolean requestFailed = false;
+		private String validationError;
+
+		private DebugCallSession(String requestId, RequestType requestType) {
+			this.requestId = requestId;
+			this.requestType = requestType;
+			this.details = stateService.getRequestDetails(requestId);
+			this.status = stateService.getRequestStatus(requestId);
+		}
+
+		private void open() {
+			String title = "Debug Call";
+			NodeState node = stateService.findNode(requestId);
+			if (node != null && node.name != null && !node.name.isBlank()) {
+				title += " - " + node.name;
+			}
+			dialog = new JDialog();
+			dialog.setTitle(title);
+			outputArea = new JBTextArea();
+			outputArea.setEditable(false);
+			outputArea.setLineWrap(true);
+			outputArea.setWrapStyleWord(true);
+
+			inlineScriptField = new JBTextField();
+			inlineScriptField.setColumns(30);
+			inlineScriptField.setToolTipText("Inline JS");
+
+			inlineRunButton = new JButton(AllIcons.Actions.Execute);
+			inlineRunButton.setToolTipText("Run Script");
+			inlineRunButton.setMargin(new Insets(0, 0, 0, 0));
+			inlineRunButton.setPreferredSize(new Dimension(28, 28));
+			inlineRunButton.addActionListener(e -> runInlineScript());
+
+			nextButton = new JButton("Next");
+			abandonButton = new JButton("Abandon");
+			nextButton.addActionListener(e -> advance());
+			abandonButton.addActionListener(e -> abandon(true));
+
+			JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+			actions.add(inlineScriptField);
+			actions.add(inlineRunButton);
+			actions.add(nextButton);
+			actions.add(abandonButton);
+
+			dialog.getContentPane().setLayout(new BorderLayout());
+			dialog.getContentPane().add(new JBScrollPane(outputArea), BorderLayout.CENTER);
+			dialog.getContentPane().add(actions, BorderLayout.SOUTH);
+			dialog.setSize(900, 700);
+			dialog.setLocationRelativeTo(root);
+			dialog.setModal(false);
+			dialog.addWindowListener(new WindowAdapter() {
+				@Override
+				public void windowClosing(WindowEvent e) {
+					abandon(true);
+				}
+
+				@Override
+				public void windowClosed(WindowEvent e) {
+					abandon(false);
+				}
+			});
+
+			outputArea.setText("");
+			appendStage(buildInitialStage());
+			dialog.setVisible(true);
+		}
+
+		private void advance() {
+			if (abandoned) {
+				return;
+			}
+			nextButton.setEnabled(false);
+			pendingTask = ApplicationManager.getApplication().executeOnPooledThread(() -> {
+				DebugStageResult result = runStage(stepIndex);
+				if (result == null || abandoned) {
+					return;
+				}
+				SwingUtilities.invokeLater(() -> {
+					if (abandoned) {
+						return;
+					}
+					appendStage(result);
+					stepIndex++;
+					nextButton.setEnabled(result.hasNext);
+				});
+			});
+		}
+
+		private DebugStageResult runStage(int step) {
+			return switch (step) {
+				case 1 -> buildBeforeStage();
+				case 2 -> buildResponseStage();
+				case 3 -> buildAfterStage();
+				case 4 -> buildFinalStage();
+				default -> null;
+			};
+		}
+
+		private void abandon(boolean closeDialog) {
+			if (abandoned) {
+				return;
+			}
+			abandoned = true;
+			if (pendingTask != null) {
+				pendingTask.cancel(true);
+			}
+			SwingUtilities.invokeLater(() -> {
+				if (outputArea != null) {
+					outputArea.setText("");
+				}
+				if (closeDialog && dialog != null && dialog.isDisplayable()) {
+					dialog.dispose();
+				}
+			});
+			if (debugCallSession == this) {
+				debugCallSession = null;
+			}
+		}
+
+		private void runInlineScript() {
+			if (abandoned) {
+				return;
+			}
+			String script = inlineScriptField.getText();
+			if (script == null || script.isBlank()) {
+				return;
+			}
+			inlineRunButton.setEnabled(false);
+			pendingTask = ApplicationManager.getApplication().executeOnPooledThread(() -> {
+				DebugStageResult result = executeInlineScript(script);
+				if (result == null || abandoned) {
+					return;
+				}
+				SwingUtilities.invokeLater(() -> {
+					if (abandoned) {
+						return;
+					}
+					appendStage(result);
+					inlineRunButton.setEnabled(true);
+				});
+			});
+		}
+
+		private DebugStageResult executeInlineScript(String script) {
+			long start = System.nanoTime();
+			List<String> lines = new ArrayList<>();
+			if (vars == null || logger == null || helpers == null) {
+				lines.add("Context not ready. Run Next first.");
+				long duration = System.nanoTime() - start;
+				return new DebugStageResult("Inline Script", duration, lines, nextButton.isEnabled());
+			}
+			if (logs == null) {
+				logs = new ArrayList<>();
+			}
+			int logStart = logs.size();
+			ScriptRequest contextRequest = afterRequest != null ? afterRequest : currentRequest;
+			if (contextRequest == null) {
+				contextRequest = new ScriptRequest("", List.of(), List.of());
+			}
+			Object response = null;
+			if (requestType == RequestType.HTTP) {
+				response = httpResponse;
+			} else if (requestType == RequestType.GRPC) {
+				response = grpcResponse;
+			}
+			try {
+				scriptRuntime.runScript(
+					script,
+					new ScriptContext(vars, logger, helpers, contextRequest, rawRequest, response)
+				);
+			} catch (Exception error) {
+				logs.add("Inline script error: " + error.getMessage());
+			}
+			List<String> scriptLogs =
+				logs.size() == logStart ? List.of() : new ArrayList<>(logs.subList(logStart, logs.size()));
+			lines.addAll(formatLogs("Inline script logs", scriptLogs));
+			long duration = System.nanoTime() - start;
+			return new DebugStageResult("Inline Script", duration, lines, nextButton.isEnabled());
+		}
+
+		private DebugStageResult buildInitialStage() {
+			long start = System.nanoTime();
+			List<String> lines = new ArrayList<>();
+			lines.add("Request Id: " + requestId);
+			if (requestType == RequestType.HTTP) {
+				String method = details == null || details.method == null ? "GET" : details.method;
+				String url = details == null || details.url == null ? "" : details.url;
+				lines.add("Method: " + method);
+				lines.add("URL: " + (url.isBlank() ? "<missing>" : url));
+			} else {
+				String target = details == null || details.target == null ? "" : details.target;
+				String service = details == null || details.service == null ? "" : details.service;
+				String method = details == null || details.grpcMethod == null ? "" : details.grpcMethod;
+				lines.add("Target: " + (target.isBlank() ? "<missing>" : target));
+				lines.add("Service: " + (service.isBlank() ? "<missing>" : service));
+				lines.add("Method: " + (method.isBlank() ? "<missing>" : method));
+			}
+			lines.addAll(formatRequestSnapshot(
+				status == null ? "" : status.requestBody,
+				status == null ? List.of() : status.requestParams,
+				status == null ? List.of() : status.requestHeaders
+			));
+			long duration = System.nanoTime() - start;
+			return new DebugStageResult("Current Request", duration, lines, true);
+		}
+
+		private DebugStageResult buildBeforeStage() {
+			long start = System.nanoTime();
+			List<String> lines = new ArrayList<>();
+			String body = status == null ? "" : safe(status.requestBody);
+			List<HeaderEntryState> headers = status == null ? List.of() : status.requestHeaders;
+			List<HeaderEntryState> params = status == null ? List.of() : status.requestParams;
+			String before = status == null ? "" : safe(status.beforeScript);
+
+			logs = new ArrayList<>();
+			logger = message -> logs.add(message);
+			helpers = new ScriptHelpers(logger);
+			vars = new VarsStore();
+			rawRequest = new ScriptRequest(body, cloneHeaders(headers), cloneHeaders(params));
+			beforeRequest = new ScriptRequest(body, cloneHeaders(headers), cloneHeaders(params));
+
+			validationError = validateDetails();
+			if (validationError != null) {
+				beforeFailed = true;
+				lines.add("Error: " + validationError);
+			} else {
+				try {
+					scriptRuntime.runScript(
+						before,
+						new ScriptContext(vars, logger, helpers, beforeRequest, rawRequest, null)
+					);
+				} catch (Exception error) {
+					logs.add("Before request error: " + error.getMessage());
+					beforeFailed = true;
+				}
+			}
+			beforeLogs = logs.isEmpty() ? List.of() : new ArrayList<>(logs);
+
+			if (!beforeFailed) {
+				Map<String, Object> varsSnapshot = vars.entries();
+				templatedBody = templateEngine.applyToBody(beforeRequest.getBody(), varsSnapshot);
+				templatedHeaders = templateEngine.applyToHeaders(beforeRequest.getHeaders(), varsSnapshot);
+				templatedParams = templateEngine.applyToParams(beforeRequest.getParams(), varsSnapshot);
+				if (requestType == RequestType.HTTP) {
+					String url = details == null || details.url == null ? "" : details.url;
+					String templatedUrlBase = templateEngine.applyToText(url, varsSnapshot);
+					templatedUrl = applyQueryParams(templatedUrlBase, templatedParams);
+				}
+			} else {
+				templatedBody = beforeRequest.getBody();
+				templatedHeaders = beforeRequest.getHeaders();
+				templatedParams = beforeRequest.getParams();
+				templatedUrl = details == null || details.url == null ? "" : details.url;
+			}
+			currentRequest = new ScriptRequest(templatedBody, templatedHeaders, templatedParams);
+
+			if (requestType == RequestType.HTTP) {
+				String method = details == null || details.method == null ? "GET" : details.method;
+				lines.add("Method: " + method);
+				lines.add("URL: " + (templatedUrl == null || templatedUrl.isBlank() ? "<missing>" : templatedUrl));
+			} else {
+				String target = details == null || details.target == null ? "" : details.target;
+				String service = details == null || details.service == null ? "" : details.service;
+				String method = details == null || details.grpcMethod == null ? "" : details.grpcMethod;
+				lines.add("Target: " + (target.isBlank() ? "<missing>" : target));
+				lines.add("Service: " + (service.isBlank() ? "<missing>" : service));
+				lines.add("Method: " + (method.isBlank() ? "<missing>" : method));
+			}
+
+			lines.add("Request:");
+			lines.addAll(formatRequestSnapshot(templatedBody, templatedParams, templatedHeaders));
+			lines.add("rawRequest:");
+			lines.addAll(formatRequestSnapshot(rawRequest.getBody(), rawRequest.getParams(), rawRequest.getHeaders()));
+			lines.addAll(formatLogs("Before request logs", beforeLogs));
+			if (beforeFailed) {
+				lines.add("Request will not be sent.");
+			}
+
+			long duration = System.nanoTime() - start;
+			return new DebugStageResult("Sent Request", duration, lines, true);
+		}
+
+		private DebugStageResult buildResponseStage() {
+			long start = System.nanoTime();
+			List<String> lines = new ArrayList<>();
+			if (beforeFailed) {
+				lines.add("Request skipped because before request failed.");
+				long duration = System.nanoTime() - start;
+				return new DebugStageResult("Response Received", duration, lines, true);
+			}
+			try {
+				if (requestType == RequestType.HTTP) {
+					String method = details == null || details.method == null ? "GET" : details.method;
+					httpResponse = httpExecutor.execute(method, templatedUrl, templatedHeaders, templatedBody);
+				} else {
+					grpcResponse = grpcExecutor.execute(
+						details.target,
+						details.service,
+						details.grpcMethod,
+						templatedBody,
+						templatedHeaders
+					);
+				}
+			} catch (InterruptedException error) {
+				Thread.currentThread().interrupt();
+				return null;
+			} catch (Exception error) {
+				requestFailed = true;
+				if (requestType == RequestType.HTTP) {
+					logs.add("Request failed: " + error.getMessage());
+				} else {
+					logs.add("gRPC request failed: " + error.getMessage());
+				}
+			}
+
+			if (requestFailed) {
+				lines.add("Request failed. No response received.");
+			} else if (requestType == RequestType.HTTP && httpResponse != null) {
+				lines.add("Status: " + httpResponse.statusCode);
+				lines.addAll(formatResponseSnapshot(httpResponse.body, httpResponse.headers));
+			} else if (requestType == RequestType.GRPC && grpcResponse != null) {
+				lines.add("Status: " + grpcResponse.statusCode + " " + safe(grpcResponse.statusMessage));
+				lines.addAll(formatResponseSnapshot(grpcResponse.body, grpcResponse.headers));
+			} else {
+				lines.add("No response received.");
+			}
+
+			long duration = System.nanoTime() - start;
+			return new DebugStageResult("Response Received", duration, lines, true);
+		}
+
+		private DebugStageResult buildAfterStage() {
+			long start = System.nanoTime();
+			List<String> lines = new ArrayList<>();
+			if (beforeFailed) {
+				lines.add("After request skipped because before request failed.");
+			} else if (requestFailed || (requestType == RequestType.HTTP && httpResponse == null) ||
+				(requestType == RequestType.GRPC && grpcResponse == null)) {
+				lines.add("After request skipped because request failed.");
+			} else {
+				int logStart = logs.size();
+				String after = status == null ? "" : safe(status.afterScript);
+				afterRequest = new ScriptRequest(templatedBody, cloneHeaders(templatedHeaders), cloneHeaders(templatedParams));
+				try {
+					Object response = requestType == RequestType.HTTP ? httpResponse : grpcResponse;
+					scriptRuntime.runScript(
+						after,
+						new ScriptContext(vars, logger, helpers, afterRequest, rawRequest, response)
+					);
+				} catch (Exception error) {
+					logs.add("After request error: " + error.getMessage());
+				}
+				afterLogs = logs.size() == logStart ? List.of() : new ArrayList<>(logs.subList(logStart, logs.size()));
+				lines.addAll(formatLogs("After request logs", afterLogs));
+			}
+			long duration = System.nanoTime() - start;
+			return new DebugStageResult("After Request Logs", duration, lines, true);
+		}
+
+		private DebugStageResult buildFinalStage() {
+			long start = System.nanoTime();
+			List<String> lines = new ArrayList<>();
+			ScriptRequest finalRequest = afterRequest != null ? afterRequest : currentRequest;
+			if (finalRequest == null) {
+				finalRequest = new ScriptRequest("", List.of(), List.of());
+			}
+			lines.addAll(formatRequestSnapshot(finalRequest.getBody(), finalRequest.getParams(), finalRequest.getHeaders()));
+			lines.addAll(formatLogs("Logs after request", logs == null ? List.of() : logs));
+			long duration = System.nanoTime() - start;
+			return new DebugStageResult("Final State", duration, lines, false);
+		}
+
+		private String validateDetails() {
+			if (details == null) {
+				return "Missing request details.";
+			}
+			if (requestType == RequestType.HTTP) {
+				if (details.url == null || details.url.isBlank()) {
+					return "Missing URL.";
+				}
+			} else {
+				if (details.target == null || details.target.isBlank()) {
+					return "Missing gRPC target.";
+				}
+				if (details.service == null || details.service.isBlank()) {
+					return "Missing gRPC service.";
+				}
+				if (details.grpcMethod == null || details.grpcMethod.isBlank()) {
+					return "Missing gRPC method.";
+				}
+			}
+			return null;
+		}
+
+		private void appendStage(DebugStageResult result) {
+			String header = result.stageName + " (" + formatDuration(result.durationNanos) + ")";
+			if (outputArea.getDocument().getLength() > 0) {
+				outputArea.append("\n");
+			}
+			outputArea.append(header + "\n");
+			outputArea.append("-----\n");
+			if (result.lines == null || result.lines.isEmpty()) {
+				outputArea.append("<empty>\n");
+				return;
+			}
+			for (String line : result.lines) {
+				outputArea.append((line == null ? "" : line) + "\n");
+			}
+		}
+
+		private String formatDuration(long nanos) {
+			long ms = TimeUnit.NANOSECONDS.toMillis(nanos);
+			long seconds = ms / 1000;
+			long remain = ms % 1000;
+			return seconds + "s:" + String.format("%03dms", remain);
+		}
+
+		private List<String> formatRequestSnapshot(
+			String body,
+			List<HeaderEntryState> params,
+			List<HeaderEntryState> headers
+		) {
+			List<String> lines = new ArrayList<>();
+			lines.add("Body:");
+			appendTextBlock(lines, body);
+			appendHeaderEntries(lines, "Params", params);
+			appendHeaderEntries(lines, "Headers", headers);
+			return lines;
+		}
+
+		private List<String> formatResponseSnapshot(
+			String body,
+			Map<String, List<String>> headers
+		) {
+			List<String> lines = new ArrayList<>();
+			lines.add("Response Body:");
+			appendTextBlock(lines, JsonUtils.prettyPrint(body));
+			lines.add("Response Headers:");
+			appendTextBlock(lines, toJson(headers));
+			return lines;
+		}
+
+		private List<String> formatLogs(String title, List<String> logLines) {
+			List<String> lines = new ArrayList<>();
+			lines.add(title + ":");
+			if (logLines == null || logLines.isEmpty()) {
+				lines.add("<empty>");
+				return lines;
+			}
+			lines.addAll(logLines);
+			return lines;
+		}
+
+		private void appendHeaderEntries(
+			List<String> lines,
+			String label,
+			List<HeaderEntryState> entries
+		) {
+			lines.add(label + ":");
+			if (entries == null || entries.isEmpty()) {
+				lines.add("<empty>");
+				return;
+			}
+			for (HeaderEntryState entry : entries) {
+				if (entry == null) {
+					continue;
+				}
+				String name = entry.name == null ? "" : entry.name;
+				String value = entry.value == null ? "" : entry.value;
+				String enabled = entry.enabled ? "enabled" : "disabled";
+				lines.add(name + ": " + (value.isBlank() ? "<empty>" : value) + " (" + enabled + ")");
+			}
+		}
+
+		private void appendTextBlock(List<String> lines, String text) {
+			if (text == null || text.isBlank()) {
+				lines.add("<empty>");
+				return;
+			}
+			String[] parts = text.split("\\R", -1);
+			Collections.addAll(lines, parts);
 		}
 	}
 
@@ -5156,5 +5761,3 @@ public class WebrunnerToolWindowPanel {
 		}
 	}
 }
-
-
