@@ -8,6 +8,8 @@ public class RequestStatusState {
     public String requestBody;
     public List<HeaderEntryState> requestHeaders = new ArrayList<>();
     public List<HeaderEntryState> requestParams = new ArrayList<>();
+    public List<FormEntryState> formData = new ArrayList<>();
+    public String binaryFilePath;
     public String responseBody;
     public String responseHeaders;
     public String logs;

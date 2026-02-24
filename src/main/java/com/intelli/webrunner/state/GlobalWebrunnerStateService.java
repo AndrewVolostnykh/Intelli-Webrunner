@@ -29,6 +29,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         state.requestDetails = loaded.requestDetails == null ? new ArrayList<>() : new ArrayList<>(loaded.requestDetails);
         state.requestStatuses = loaded.requestStatuses == null ? new ArrayList<>() : new ArrayList<>(loaded.requestStatuses);
         state.chainStates = loaded.chainStates == null ? new ArrayList<>() : new ArrayList<>(loaded.chainStates);
+        state.headerPresets = loaded.headerPresets == null ? new ArrayList<>() : cloneHeaderPresets(loaded.headerPresets);
     }
 
     public List<NodeState> getNodes() {
@@ -41,6 +42,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         snapshot.requestDetails = cloneDetails(state.requestDetails);
         snapshot.requestStatuses = cloneStatuses(state.requestStatuses);
         snapshot.chainStates = cloneChains(state.chainStates);
+        snapshot.headerPresets = cloneHeaderPresets(state.headerPresets);
         return snapshot;
     }
 
@@ -52,6 +54,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         state.requestDetails = incoming.requestDetails == null ? new ArrayList<>() : cloneDetails(incoming.requestDetails);
         state.requestStatuses = incoming.requestStatuses == null ? new ArrayList<>() : cloneStatuses(incoming.requestStatuses);
         state.chainStates = incoming.chainStates == null ? new ArrayList<>() : cloneChains(incoming.chainStates);
+        state.headerPresets = incoming.headerPresets == null ? new ArrayList<>() : cloneHeaderPresets(incoming.headerPresets);
         normalizeOrders();
     }
 
@@ -63,6 +66,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         List<RequestDetailsState> incomingDetails = cloneDetails(incoming.requestDetails);
         List<RequestStatusState> incomingStatuses = cloneStatuses(incoming.requestStatuses);
         List<ChainState> incomingChains = cloneChains(incoming.chainStates);
+        List<HeaderPresetState> incomingPresets = cloneHeaderPresets(incoming.headerPresets);
 
         Map<String, String> idMap = new HashMap<>();
         Set<String> existingIds = new HashSet<>();
@@ -140,7 +144,18 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         state.requestDetails.addAll(incomingDetails);
         state.requestStatuses.addAll(incomingStatuses);
         state.chainStates.addAll(incomingChains);
+        if (!incomingPresets.isEmpty()) {
+            state.headerPresets = incomingPresets;
+        }
         normalizeOrders();
+    }
+
+    public List<HeaderPresetState> getHeaderPresets() {
+        return cloneHeaderPresets(state.headerPresets);
+    }
+
+    public void saveHeaderPresets(List<HeaderPresetState> presets) {
+        state.headerPresets = presets == null ? new ArrayList<>() : cloneHeaderPresets(presets);
     }
 
     public NodeState createFolder(String name, String parentId) {
@@ -170,6 +185,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         if (type == RequestType.HTTP) {
             details.method = "GET";
             details.url = "";
+            details.payloadType = "RAW";
         } else if (type == RequestType.GRPC) {
             details.target = "";
             details.service = "";
@@ -264,6 +280,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         } else {
             existing.type = details.type;
             existing.method = details.method;
+            existing.payloadType = details.payloadType;
             existing.url = details.url;
             existing.target = details.target;
             existing.service = details.service;
@@ -288,6 +305,8 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             existing.requestBody = status.requestBody;
             existing.requestHeaders = status.requestHeaders == null ? new ArrayList<>() : new ArrayList<>(status.requestHeaders);
             existing.requestParams = status.requestParams == null ? new ArrayList<>() : new ArrayList<>(status.requestParams);
+            existing.formData = status.formData == null ? new ArrayList<>() : new ArrayList<>(status.formData);
+            existing.binaryFilePath = status.binaryFilePath;
             existing.responseBody = status.responseBody;
             existing.responseHeaders = status.responseHeaders;
             existing.logs = status.logs;
@@ -372,6 +391,20 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         return copy;
     }
 
+    private List<HeaderPresetState> cloneHeaderPresets(List<HeaderPresetState> presets) {
+        List<HeaderPresetState> copy = new ArrayList<>();
+        if (presets == null) {
+            return copy;
+        }
+        for (HeaderPresetState preset : presets) {
+            HeaderPresetState clone = new HeaderPresetState();
+            clone.name = preset.name;
+            clone.values = preset.values == null ? new ArrayList<>() : new ArrayList<>(preset.values);
+            copy.add(clone);
+        }
+        return copy;
+    }
+
     private List<RequestDetailsState> cloneDetails(List<RequestDetailsState> detailsList) {
         List<RequestDetailsState> copy = new ArrayList<>();
         if (detailsList == null) {
@@ -382,6 +415,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             clone.requestId = details.requestId;
             clone.type = details.type;
             clone.method = details.method;
+            clone.payloadType = details.payloadType;
             clone.url = details.url;
             clone.target = details.target;
             clone.service = details.service;
@@ -402,11 +436,27 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             clone.requestBody = status.requestBody;
             clone.requestHeaders = status.requestHeaders == null ? new ArrayList<>() : cloneHeaders(status.requestHeaders);
             clone.requestParams = status.requestParams == null ? new ArrayList<>() : cloneHeaders(status.requestParams);
+            clone.formData = status.formData == null ? new ArrayList<>() : cloneFormData(status.formData);
+            clone.binaryFilePath = status.binaryFilePath;
             clone.responseBody = status.responseBody;
             clone.responseHeaders = status.responseHeaders;
             clone.logs = status.logs;
             clone.beforeScript = status.beforeScript;
             clone.afterScript = status.afterScript;
+            copy.add(clone);
+        }
+        return copy;
+    }
+
+    private List<FormEntryState> cloneFormData(List<FormEntryState> entries) {
+        List<FormEntryState> copy = new ArrayList<>();
+        for (FormEntryState entry : entries) {
+            FormEntryState clone = new FormEntryState();
+            clone.id = entry.id;
+            clone.name = entry.name;
+            clone.value = entry.value;
+            clone.enabled = entry.enabled;
+            clone.file = entry.file;
             copy.add(clone);
         }
         return copy;

@@ -8,4 +8,5 @@ public class WebrunnerState {
     public List<RequestDetailsState> requestDetails = new ArrayList<>();
     public List<RequestStatusState> requestStatuses = new ArrayList<>();
     public List<ChainState> chainStates = new ArrayList<>();
+    public List<HeaderPresetState> headerPresets = new ArrayList<>();
 }

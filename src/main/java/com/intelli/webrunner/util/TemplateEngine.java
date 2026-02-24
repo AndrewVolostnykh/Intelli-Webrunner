@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
+import com.intelli.webrunner.state.FormEntryState;
 import com.intelli.webrunner.state.HeaderEntryState;
 
 import java.util.List;
@@ -43,6 +44,14 @@ public class TemplateEngine {
             param.value = interpolate(param.value, vars);
         }
         return params;
+    }
+
+    public List<FormEntryState> applyToFormData(List<FormEntryState> entries, Map<String, Object> vars) {
+        for (FormEntryState entry : entries) {
+            entry.name = interpolate(entry.name, vars);
+            entry.value = interpolate(entry.value, vars);
+        }
+        return entries;
     }
 
     public String applyToText(String value, Map<String, Object> vars) {

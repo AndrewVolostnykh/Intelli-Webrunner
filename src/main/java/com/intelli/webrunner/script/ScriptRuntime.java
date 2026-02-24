@@ -1,6 +1,7 @@
 package com.intelli.webrunner.script;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.intelli.webrunner.state.FormEntryState;
 import com.intelli.webrunner.state.HeaderEntryState;
 import org.mozilla.javascript.BaseFunction;
 import org.mozilla.javascript.Context;
@@ -150,6 +151,8 @@ public class ScriptRuntime {
         ScriptableObject.putProperty(requestObj, "body", requestBody);
         ScriptableObject.putProperty(requestObj, "headers", buildHeaderArray(request.getHeaders(), cx, scope));
         ScriptableObject.putProperty(requestObj, "params", buildHeaderArray(request.getParams(), cx, scope));
+        ScriptableObject.putProperty(requestObj, "formData", buildFormDataArray(request.getFormData(), cx, scope));
+        ScriptableObject.putProperty(requestObj, "binaryFilePath", request.getBinaryFilePath() == null ? "" : request.getBinaryFilePath());
         return requestObj;
     }
 
@@ -222,6 +225,8 @@ public class ScriptRuntime {
         }
         updateHeadersFromScript(context, requestObj);
         updateParamsFromScript(context, requestObj);
+        updateFormDataFromScript(context, requestObj);
+        updateBinaryFromScript(context, requestObj);
     }
 
     private void updateHeadersFromScript(ScriptContext context, Scriptable requestObj) {
@@ -328,6 +333,28 @@ public class ScriptRuntime {
         }
     }
 
+    private void updateFormDataFromScript(ScriptContext context, Scriptable requestObj) {
+        Object formValue = ScriptableObject.getProperty(requestObj, "formData");
+        if (formValue == ScriptableObject.NOT_FOUND || formValue instanceof Undefined) {
+            return;
+        }
+        try {
+            List<FormEntryState> entries = toFormEntries(formValue);
+            if (entries != null) {
+                context.request.setFormData(entries);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void updateBinaryFromScript(ScriptContext context, Scriptable requestObj) {
+        Object value = ScriptableObject.getProperty(requestObj, "binaryFilePath");
+        if (value == ScriptableObject.NOT_FOUND || value instanceof Undefined) {
+            return;
+        }
+        context.request.setBinaryFilePath(value == null ? "" : String.valueOf(value));
+    }
+
     private List<HeaderEntryState> toHeaderEntries(Object value) {
         if (value == null || value == ScriptableObject.NOT_FOUND || value instanceof Undefined) {
             return null;
@@ -354,7 +381,7 @@ public class ScriptRuntime {
                 Object val = map.get("value");
                 Object enabled = map.get("enabled");
                 entry.name = name == null ? "" : String.valueOf(name);
-                entry.value = val == null ? "" : String.valueOf(val);
+                entry.value = normalizeScriptString(val);
                 entry.enabled = enabled == null || Boolean.TRUE.equals(enabled);
                 result.add(entry);
                 continue;
@@ -365,8 +392,57 @@ public class ScriptRuntime {
                 Object val = ScriptableObject.getProperty(scriptable, "value");
                 Object enabled = ScriptableObject.getProperty(scriptable, "enabled");
                 entry.name = name == ScriptableObject.NOT_FOUND ? "" : String.valueOf(name);
-                entry.value = val == ScriptableObject.NOT_FOUND ? "" : String.valueOf(val);
+                entry.value = val == ScriptableObject.NOT_FOUND ? "" : normalizeScriptString(val);
                 entry.enabled = enabled == ScriptableObject.NOT_FOUND || Boolean.TRUE.equals(enabled);
+                result.add(entry);
+            }
+        }
+        return result;
+    }
+
+    private List<FormEntryState> toFormEntries(Object value) {
+        if (value == null || value == ScriptableObject.NOT_FOUND || value instanceof Undefined) {
+            return null;
+        }
+        Object normalized = value;
+        if (!(value instanceof List<?>)) {
+            try {
+                normalized = Context.jsToJava(value, List.class);
+            } catch (Exception ignored) {
+            }
+        }
+        if (!(normalized instanceof List<?> list)) {
+            return null;
+        }
+        List<FormEntryState> result = new ArrayList<>();
+        for (Object item : list) {
+            if (item instanceof FormEntryState entry) {
+                result.add(entry);
+                continue;
+            }
+            if (item instanceof Map<?, ?> map) {
+                FormEntryState entry = new FormEntryState();
+                Object name = map.get("name");
+                Object val = map.get("value");
+                Object enabled = map.get("enabled");
+                Object file = map.get("file");
+                entry.name = name == null ? "" : String.valueOf(name);
+                entry.value = normalizeScriptString(val);
+                entry.enabled = enabled == null || Boolean.TRUE.equals(enabled);
+                entry.file = file != null && Boolean.TRUE.equals(file);
+                result.add(entry);
+                continue;
+            }
+            if (item instanceof Scriptable scriptable) {
+                FormEntryState entry = new FormEntryState();
+                Object name = ScriptableObject.getProperty(scriptable, "name");
+                Object val = ScriptableObject.getProperty(scriptable, "value");
+                Object enabled = ScriptableObject.getProperty(scriptable, "enabled");
+                Object file = ScriptableObject.getProperty(scriptable, "file");
+                entry.name = name == ScriptableObject.NOT_FOUND ? "" : String.valueOf(name);
+                entry.value = val == ScriptableObject.NOT_FOUND ? "" : normalizeScriptString(val);
+                entry.enabled = enabled == ScriptableObject.NOT_FOUND || Boolean.TRUE.equals(enabled);
+                entry.file = file != ScriptableObject.NOT_FOUND && Boolean.TRUE.equals(file);
                 result.add(entry);
             }
         }
@@ -395,6 +471,46 @@ public class ScriptRuntime {
             array.put(i, array, obj);
         }
         return array;
+    }
+
+    private Scriptable buildFormDataArray(List<FormEntryState> entries, Context cx, Scriptable scope) {
+        List<FormEntryState> source = entries == null ? List.of() : entries;
+        NativeArray array = (NativeArray) cx.newArray(scope, source.size());
+        for (int i = 0; i < source.size(); i++) {
+            FormEntryState entry = source.get(i);
+            NativeObject obj = (NativeObject) cx.newObject(scope);
+            ScriptableObject.putProperty(obj, "name", entry == null || entry.name == null ? "" : entry.name);
+            ScriptableObject.putProperty(obj, "value", entry == null || entry.value == null ? "" : entry.value);
+            ScriptableObject.putProperty(obj, "enabled", entry != null && entry.enabled);
+            ScriptableObject.putProperty(obj, "file", entry != null && entry.file);
+            array.put(i, array, obj);
+        }
+        return array;
+    }
+
+    private String normalizeScriptString(Object value) {
+        if (value == null || value instanceof Undefined) {
+            return "";
+        }
+        if (value instanceof String str) {
+            return str;
+        }
+        try {
+            Object javaValue = Context.jsToJava(value, Object.class);
+            Object normalized = normalizeScriptValue(value, javaValue);
+            if (normalized == null) {
+                return "";
+            }
+            if (normalized instanceof String str) {
+                return str;
+            }
+            if (normalized instanceof Map || normalized instanceof List) {
+                return mapper.writeValueAsString(normalized);
+            }
+            return String.valueOf(normalized);
+        } catch (Exception ignored) {
+            return String.valueOf(value);
+        }
     }
 
     private Scriptable buildHeaderMap(Map<String, List<String>> headers, Context cx, Scriptable scope) {

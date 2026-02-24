@@ -3,6 +3,7 @@ package com.intelli.webrunner.toolwindow;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intelli.webrunner.execution.HttpExecutionResponse;
 import com.intelli.webrunner.execution.HttpExecutor;
+import com.intelli.webrunner.execution.HttpPayloadType;
 import com.intelli.webrunner.grpc.GrpcExecutionResponse;
 import com.intelli.webrunner.grpc.GrpcExecutor;
 import com.intelli.webrunner.grpc.GrpcServiceInfo;
@@ -13,15 +14,19 @@ import com.intelli.webrunner.script.ScriptRequest;
 import com.intelli.webrunner.script.ScriptRuntime;
 import com.intelli.webrunner.script.VarsStore;
 import com.intelli.webrunner.state.ChainState;
+import com.intelli.webrunner.state.FormEntryState;
 import com.intelli.webrunner.state.GlobalWebrunnerStateService;
 import com.intelli.webrunner.state.HeaderEntryState;
+import com.intelli.webrunner.state.HeaderPresetState;
 import com.intelli.webrunner.state.NodeState;
 import com.intelli.webrunner.state.NodeType;
 import com.intelli.webrunner.state.RequestDetailsState;
 import com.intelli.webrunner.state.RequestStatusState;
 import com.intelli.webrunner.state.RequestType;
 import com.intelli.webrunner.state.WebrunnerState;
+import com.intelli.webrunner.ui.FormDataTableModel;
 import com.intelli.webrunner.ui.HeaderTableModel;
+import com.intelli.webrunner.ui.HeaderPresetTableModel;
 import com.intelli.webrunner.ui.JsonBodyEditorField;
 import com.intelli.webrunner.util.JsonUtils;
 import com.intelli.webrunner.util.TemplateEngine;
@@ -128,6 +133,7 @@ import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
 import java.io.File;
 import java.net.URLEncoder;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayDeque;
@@ -179,8 +185,11 @@ public class WebrunnerToolWindowPanel {
 
 	private final JComboBox<String> httpMethodCombo =
 		new JComboBox<>(new String[] {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"});
+	private final JComboBox<String> httpPayloadCombo =
+		new JComboBox<>(new String[] {"Raw", "Form Data", "Binary"});
 	private final JBTextField httpUrlField = new JBTextField();
 	private final JButton httpSendButton = new JButton(AllIcons.Actions.Execute);
+	private final JButton httpSendDownloadButton = new JButton(AllIcons.Actions.Download);
 	private final JButton httpDebugButton = new JButton(AllIcons.Actions.StartDebugger);
 	private final JBLabel httpStatusLabel = new JBLabel("");
 
@@ -196,6 +205,15 @@ public class WebrunnerToolWindowPanel {
 	private final JPanel requestTopPanel = new JPanel(requestTopCards);
 	private final JTabbedPane requestTabs = new JTabbedPane();
 	private final EditorTextField requestBodyArea;
+	private final CardLayout bodyCards = new CardLayout();
+	private final JPanel bodyPanel = new JPanel(bodyCards);
+	private final FormDataTableModel formDataTableModel = new FormDataTableModel();
+	private final JTable formDataTable = new JTable(formDataTableModel);
+	private final JButton addFormDataButton = new JButton("Add");
+	private final JButton removeFormDataButton = new JButton("Remove");
+	private final JButton chooseFormFileButton = new JButton("Choose File");
+	private final JBTextField binaryFileField = new JBTextField();
+	private final JButton binaryBrowseButton = new JButton("Browse");
 	private final EditorTextField beforeScriptArea;
 	private final EditorTextField afterScriptArea;
 	private final HeaderTableModel headersTableModel = new HeaderTableModel();
@@ -206,6 +224,8 @@ public class WebrunnerToolWindowPanel {
 	private final JTable paramsTable = new JTable(paramsTableModel);
 	private final JButton addParamButton = new JButton("Add");
 	private final JButton removeParamButton = new JButton("Remove");
+	private final HeaderPresetTableModel headerPresetTableModel = new HeaderPresetTableModel();
+	private List<HeaderPresetState> headerPresets = new ArrayList<>();
 
 	private static final List<String> COMMON_HEADER_NAMES = List.of(
 		"Accept",
@@ -304,6 +324,7 @@ public class WebrunnerToolWindowPanel {
 		this.grpcMethodCombo.setRenderer(new DefaultListCellRenderer());
 		this.urlParamSyncTimer = new javax.swing.Timer(350, e -> syncParamsFromUrlField());
 		this.urlParamSyncTimer.setRepeats(false);
+		this.headerPresets = stateService.getHeaderPresets();
 
 		buildUi();
 		configureGrpcComboPopups();
@@ -372,7 +393,10 @@ public class WebrunnerToolWindowPanel {
 		topContainer.add(requestTopPanel, BorderLayout.CENTER);
 		panel.add(topContainer, BorderLayout.NORTH);
 
-		requestTabs.add("Body", new JBScrollPane(requestBodyArea));
+		bodyPanel.add(new JBScrollPane(requestBodyArea), "raw");
+		bodyPanel.add(buildFormDataPanel(), "form");
+		bodyPanel.add(buildBinaryPanel(), "binary");
+		requestTabs.add("Body", bodyPanel);
 		requestTabs.add("Params", buildParamsPanel());
 		requestTabs.add("Headers", buildHeadersPanel());
 		requestTabs.add("Before Request", new JBScrollPane(beforeScriptArea));
@@ -399,16 +423,22 @@ public class WebrunnerToolWindowPanel {
 		httpSendButton.setToolTipText("Send");
 		httpSendButton.setMargin(new Insets(0, 0, 0, 0));
 		httpSendButton.setPreferredSize(new Dimension(28, 28));
+		httpSendDownloadButton.setToolTipText("Send and Download");
+		httpSendDownloadButton.setMargin(new Insets(0, 0, 0, 0));
+		httpSendDownloadButton.setPreferredSize(new Dimension(28, 28));
 		httpDebugButton.setToolTipText("Debug Call");
 		httpDebugButton.setMargin(new Insets(0, 0, 0, 0));
 		httpDebugButton.setPreferredSize(new Dimension(28, 28));
 		topBar.add(httpMethodCombo);
+		topBar.add(httpPayloadCombo);
 		topBar.add(new JLabel("URL"));
 		topBar.add(httpUrlField);
 		topBar.add(httpSendButton);
+		topBar.add(httpSendDownloadButton);
 		topBar.add(httpDebugButton);
 		topBar.add(createRequestMenuButton());
 		httpSendButton.addActionListener(e -> executeHttp());
+		httpSendDownloadButton.addActionListener(e -> executeHttpDownload());
 		httpDebugButton.addActionListener(e -> startDebugCall());
 		return topBar;
 	}
@@ -583,12 +613,14 @@ public class WebrunnerToolWindowPanel {
 		JMenuItem exportCollectionsItem = new JMenuItem("Export Collections (JSON)");
 		JMenuItem importHttpItem = new JMenuItem("Import .http");
 		JMenuItem exportHttpItem = new JMenuItem("Export .http");
+		JMenuItem settingsItem = new JMenuItem("Settings");
 		JMenuItem infoItem = new JMenuItem("Info");
 		refreshItem.addActionListener(e -> reloadTree());
 		importCollectionsItem.addActionListener(e -> importCollectionsJson());
 		exportCollectionsItem.addActionListener(e -> exportCollectionsJson());
 		importHttpItem.addActionListener(e -> importHttpFromChooser());
 		exportHttpItem.addActionListener(e -> exportHttpFromChooser());
+		settingsItem.addActionListener(e -> openSettingsDialog());
 		infoItem.addActionListener(e -> showInfoDialog());
 		menu.add(refreshItem);
 		menu.addSeparator();
@@ -598,6 +630,7 @@ public class WebrunnerToolWindowPanel {
 		menu.add(importHttpItem);
 		menu.add(exportHttpItem);
 		menu.addSeparator();
+		menu.add(settingsItem);
 		menu.add(infoItem);
 		menu.show(moreButton, 0, moreButton.getHeight());
 	}
@@ -690,6 +723,69 @@ public class WebrunnerToolWindowPanel {
 		return panel;
 	}
 
+	private JPanel buildFormDataPanel() {
+		JPanel panel = new JPanel(new BorderLayout());
+		formDataTable.setFillsViewportHeight(true);
+		configureFormDataTableColumns();
+		panel.add(new JBScrollPane(formDataTable), BorderLayout.CENTER);
+
+		JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT));
+		actions.add(addFormDataButton);
+		actions.add(removeFormDataButton);
+		actions.add(chooseFormFileButton);
+		addFormDataButton.addActionListener(e -> formDataTableModel.addEmptyRow());
+		removeFormDataButton.addActionListener(e -> {
+			int index = formDataTable.getSelectedRow();
+			formDataTableModel.removeRow(index);
+		});
+		chooseFormFileButton.addActionListener(e -> chooseFormDataFile());
+		panel.add(actions, BorderLayout.SOUTH);
+		return panel;
+	}
+
+	private JPanel buildBinaryPanel() {
+		JPanel panel = new JPanel(new BorderLayout());
+		JPanel content = new JPanel(new FlowLayout(FlowLayout.LEFT));
+		binaryFileField.setColumns(36);
+		content.add(new JLabel("File"));
+		content.add(binaryFileField);
+		content.add(binaryBrowseButton);
+		binaryBrowseButton.addActionListener(e -> chooseBinaryFile());
+		panel.add(content, BorderLayout.NORTH);
+		return panel;
+	}
+
+	private void chooseBinaryFile() {
+		JFileChooser chooser = new JFileChooser();
+		chooser.setDialogTitle("Select Binary File");
+		int result = chooser.showOpenDialog(root);
+		if (result != JFileChooser.APPROVE_OPTION) {
+			return;
+		}
+		File file = chooser.getSelectedFile();
+		if (file != null) {
+			binaryFileField.setText(file.getAbsolutePath());
+		}
+	}
+
+	private void chooseFormDataFile() {
+		int row = formDataTable.getSelectedRow();
+		if (row < 0) {
+			return;
+		}
+		JFileChooser chooser = new JFileChooser();
+		chooser.setDialogTitle("Select Form Data File");
+		int result = chooser.showOpenDialog(root);
+		if (result != JFileChooser.APPROVE_OPTION) {
+			return;
+		}
+		File file = chooser.getSelectedFile();
+		if (file != null) {
+			formDataTableModel.setValueAt("File", row, 2);
+			formDataTableModel.setValueAt(file.getAbsolutePath(), row, 3);
+		}
+	}
+
 	private void showInfoDialog() {
 		JDialog dialog = new JDialog();
 		dialog.setTitle("Webrunner Info");
@@ -698,6 +794,8 @@ public class WebrunnerToolWindowPanel {
 		tabs.add("Before Request", createInfoTab(beforeRequestText()));
 		tabs.add("After Request", createInfoTab(afterRequestText()));
 		tabs.add("Chain", createInfoTab(chainText()));
+		tabs.add("Scripting", createInfoTab(scriptingText()));
+		tabs.add("Debug Call", createInfoTab(debugCallText()));
 		tabs.add("Scripting API", createInfoTab(scriptingApiText()));
 		dialog.getContentPane().add(tabs);
 		dialog.setSize(900, 650);
@@ -786,6 +884,75 @@ public class WebrunnerToolWindowPanel {
 			""";
 	}
 
+	private String scriptingText() {
+		return """
+			Scripting
+			
+			Скрипти виконуються в двох точках: Before Request та After Request. Обидва виконуються
+			в одному й тому ж контексті VarsStore та логів, тому дані можуть передаватися між етапами.
+			
+			Before Request:
+			- Запускається ДО шаблонізації (template engine).
+			- Має доступ до `request` (ScriptRequest) і може змінювати body/headers/params/form data/binary path.
+			- Має доступ до `rawRequest` (початковий стан до змін скриптом).
+			- Будь-який виняток у скрипті зупиняє виконання запиту.
+			- Після виконання скрипта формується snapshot `vars`, і саме по ньому виконується шаблонізація:
+			  body, headers, params, form data, binary path, а також URL (з params).
+			
+			After Request:
+			- Запускається ТІЛЬКИ якщо запит успішно відправлено і є відповідь.
+			- Має доступ до `response` (HTTP або gRPC), до `request` (вже шаблонізований запит),
+			  і до `rawRequest`.
+			- Логи скрипта додаються в загальні logs.
+			
+			VarsStore:
+			- `vars.add(key, value)` додає значення.
+			- `vars.get(key)` читає значення.
+			- Використовується для шаблонізації через `${...}` у body/headers/params/URL.
+			
+			Порядок виконання (звичайний Send):
+			1) Before Request (скрипт)
+			2) Шаблонізація даних і URL
+			3) Відправка запиту
+			4) After Request (скрипт)
+			""";
+	}
+
+	private String debugCallText() {
+		return """
+			Debug Call
+			
+			Debug Call дозволяє покроково виконати запит та побачити стан на кожному етапі.
+			Кнопка `Next` переходить до наступного етапу.
+			
+			Етапи:
+			1) Current Request
+			   - Сніппет поточного стану: body, params, headers, form data, binary path.
+			   - Метод/URL (HTTP) або target/service/method (gRPC).
+			
+			2) Sent Request
+			   - Виконується Before Request (як у звичайному запуску).
+			   - Будуються шаблонізовані body/headers/params/form data/binary path та URL.
+			   - Показується запит, який буде відправлено, + логи Before Request.
+			
+			3) Response Received
+			   - Фактична відправка запиту.
+			   - Показується статус і відповідь (body + headers).
+			
+			4) After Request Logs
+			   - Виконується After Request.
+			   - Показуються логи After Request.
+			
+			5) Final State
+			   - Фінальний snapshot запиту після всіх скриптів.
+			   - Повні логи.
+			
+			Inline Script:
+			- Можна виконувати короткі JS-скрипти в поточному контексті.
+			- Контекст з’являється після першого `Next` (коли сформовані vars/logger/helpers).
+			""";
+	}
+
 	private String scriptingApiText() {
 		return """
 			Scripting API (JS):
@@ -819,6 +986,7 @@ public class WebrunnerToolWindowPanel {
 		enabledColumn.setResizable(false);
 
 		headersTable.getColumnModel().getColumn(1).setCellEditor(createHeaderNameEditor(COMMON_HEADER_NAMES));
+		headersTable.getColumnModel().getColumn(2).setCellEditor(new HeaderValueCellEditor());
 	}
 
 	private void configureParamsTableColumns() {
@@ -829,13 +997,98 @@ public class WebrunnerToolWindowPanel {
 		enabledColumn.setResizable(false);
 	}
 
+	private void configureFormDataTableColumns() {
+		TableColumn enabledColumn = formDataTable.getColumnModel().getColumn(0);
+		enabledColumn.setPreferredWidth(60);
+		enabledColumn.setMinWidth(60);
+		enabledColumn.setMaxWidth(60);
+		enabledColumn.setResizable(false);
+
+		TableColumn typeColumn = formDataTable.getColumnModel().getColumn(2);
+		JComboBox<String> typeCombo = new JComboBox<>(new String[] {"Text", "File"});
+		typeColumn.setCellEditor(new javax.swing.DefaultCellEditor(typeCombo));
+		typeColumn.setPreferredWidth(90);
+		typeColumn.setMaxWidth(120);
+	}
+
 	private void updateHeaderNameEditor(RequestType type) {
 		List<String> variants = type == RequestType.GRPC ? GRPC_HEADER_NAMES : COMMON_HEADER_NAMES;
 		headersTable.getColumnModel().getColumn(1).setCellEditor(createHeaderNameEditor(variants));
 	}
 
+	private void switchPayloadType() {
+		String label = resolvePayloadLabel(httpPayloadCombo.getSelectedItem());
+		if ("Form Data".equals(label)) {
+			bodyCards.show(bodyPanel, "form");
+		} else if ("Binary".equals(label)) {
+			bodyCards.show(bodyPanel, "binary");
+		} else {
+			bodyCards.show(bodyPanel, "raw");
+		}
+	}
+
+	private String resolvePayloadLabel(Object value) {
+		String normalized = value == null ? "" : String.valueOf(value).trim();
+		if (normalized.equalsIgnoreCase("FORM_DATA") || normalized.equalsIgnoreCase("Form Data")) {
+			return "Form Data";
+		}
+		if (normalized.equalsIgnoreCase("BINARY") || normalized.equalsIgnoreCase("Binary")) {
+			return "Binary";
+		}
+		return "Raw";
+	}
+
+	private String resolvePayloadValue(Object value) {
+		String label = resolvePayloadLabel(value);
+		if ("Form Data".equals(label)) {
+			return "FORM_DATA";
+		}
+		if ("Binary".equals(label)) {
+			return "BINARY";
+		}
+		return "RAW";
+	}
+
+	private HttpPayloadType resolvePayloadType(String value) {
+		String normalized = value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
+		return switch (normalized) {
+			case "FORM_DATA" -> HttpPayloadType.FORM_DATA;
+			case "BINARY" -> HttpPayloadType.BINARY;
+			default -> HttpPayloadType.RAW;
+		};
+	}
+
 	private TableCellEditor createHeaderNameEditor(List<String> variants) {
-		return new HeaderNameCellEditor(project, variants);
+		return new HeaderNameCellEditor(project, mergeHeaderVariants(variants));
+	}
+
+	private List<String> mergeHeaderVariants(List<String> base) {
+		List<String> merged = new ArrayList<>();
+		if (base != null) {
+			merged.addAll(base);
+		}
+		for (HeaderPresetState preset : headerPresets) {
+			if (preset == null || preset.name == null || preset.name.isBlank()) {
+				continue;
+			}
+			if (!merged.contains(preset.name)) {
+				merged.add(preset.name);
+			}
+		}
+		return merged;
+	}
+
+	private Map<String, List<String>> buildHeaderPresetMap() {
+		Map<String, List<String>> map = new LinkedHashMap<>();
+		for (HeaderPresetState preset : headerPresets) {
+			if (preset == null || preset.name == null || preset.name.isBlank()) {
+				continue;
+			}
+			String key = preset.name.trim().toLowerCase(Locale.ROOT);
+			List<String> values = preset.values == null ? List.of() : new ArrayList<>(preset.values);
+			map.put(key, values);
+		}
+		return map;
 	}
 
 	private void configureGrpcComboPopups() {
@@ -997,6 +1250,48 @@ public class WebrunnerToolWindowPanel {
 		) {
 			field.setText(value == null ? "" : String.valueOf(value));
 			return field;
+		}
+	}
+
+	private class HeaderValueCellEditor extends AbstractCellEditor implements TableCellEditor {
+
+		private final JComboBox<String> combo = new JComboBox<>();
+
+		private HeaderValueCellEditor() {
+			combo.setEditable(true);
+		}
+
+		@Override
+		public Object getCellEditorValue() {
+			Object value = combo.getEditor().getItem();
+			return value == null ? "" : String.valueOf(value);
+		}
+
+		@Override
+		public Component getTableCellEditorComponent(
+			JTable table,
+			Object value,
+			boolean isSelected,
+			int row,
+			int column
+		) {
+			String current = value == null ? "" : String.valueOf(value);
+			combo.removeAllItems();
+			String headerName = "";
+			Object nameValue = table.getValueAt(row, 1);
+			if (nameValue != null) {
+				headerName = String.valueOf(nameValue);
+			}
+			Map<String, List<String>> presetMap = buildHeaderPresetMap();
+			List<String> values =
+				presetMap.getOrDefault(headerName.trim().toLowerCase(Locale.ROOT), List.of());
+			if (!values.isEmpty()) {
+				for (String item : values) {
+					combo.addItem(item);
+				}
+			}
+			combo.setSelectedItem(current);
+			return combo;
 		}
 	}
 
@@ -1582,6 +1877,7 @@ public class WebrunnerToolWindowPanel {
 				details.type = RequestType.HTTP;
 				details.method = request.method;
 				details.url = request.url;
+				details.payloadType = "RAW";
 				stateService.saveRequestDetails(details);
 
 				RequestStatusState status = stateService.getRequestStatus(node.id);
@@ -2049,6 +2345,7 @@ public class WebrunnerToolWindowPanel {
 					details.type = RequestType.HTTP;
 					details.method = requestData.method;
 					details.url = requestData.url;
+					details.payloadType = "RAW";
 					stateService.saveRequestDetails(details);
 
 					RequestStatusState status = stateService.getRequestStatus(node.id);
@@ -2568,8 +2865,11 @@ public class WebrunnerToolWindowPanel {
 		RequestStatusState status = stateService.getRequestStatus(requestId);
 		updateHeaderNameEditor(RequestType.HTTP);
 		httpMethodCombo.setSelectedItem(details != null && details.method != null ? details.method : "GET");
+		httpPayloadCombo.setSelectedItem(resolvePayloadLabel(details != null ? details.payloadType : null));
 		httpUrlField.setText(details != null && details.url != null ? details.url : "");
 		requestBodyArea.setText(status != null ? safe(status.requestBody) : "");
+		formDataTableModel.setEntries(status != null ? status.formData : List.of());
+		binaryFileField.setText(status != null ? safe(status.binaryFilePath) : "");
 		beforeScriptArea.setText(status != null ? safe(status.beforeScript) : "");
 		afterScriptArea.setText(status != null ? safe(status.afterScript) : "");
 		headersTableModel.setHeaders(status != null ? status.requestHeaders : List.of(), true);
@@ -2580,6 +2880,7 @@ public class WebrunnerToolWindowPanel {
 		responseHeadersArea.setText(status != null ? safe(status.responseHeaders) : "");
 		responseLogsArea.setText(status != null ? safe(status.logs) : "");
 		responseStatusLabel.setText("");
+		switchPayloadType();
 		isLoading = false;
 	}
 
@@ -2590,6 +2891,7 @@ public class WebrunnerToolWindowPanel {
 		updateHeaderNameEditor(RequestType.GRPC);
 		grpcTargetField.setText(details != null ? safe(details.target) : "");
 		requestBodyArea.setText(status != null ? safe(status.requestBody) : "");
+		bodyCards.show(bodyPanel, "raw");
 		beforeScriptArea.setText(status != null ? safe(status.beforeScript) : "");
 		afterScriptArea.setText(status != null ? safe(status.afterScript) : "");
 		headersTableModel.setHeaders(status != null ? status.requestHeaders : List.of(), false);
@@ -2648,6 +2950,7 @@ public class WebrunnerToolWindowPanel {
 		try {
 			stopTableEditing(headersTable);
 			stopTableEditing(paramsTable);
+			stopTableEditing(formDataTable);
 		} finally {
 			isStoppingTableEditing = false;
 		}
@@ -2671,6 +2974,7 @@ public class WebrunnerToolWindowPanel {
 		}
 		details.type = RequestType.HTTP;
 		details.method = String.valueOf(httpMethodCombo.getSelectedItem());
+		details.payloadType = resolvePayloadValue(httpPayloadCombo.getSelectedItem());
 		details.url = httpUrlField.getText();
 		stateService.saveRequestDetails(details);
 
@@ -2714,6 +3018,8 @@ public class WebrunnerToolWindowPanel {
 		status.requestBody = requestBodyArea.getText();
 		status.requestHeaders = headersTableModel.getHeaders();
 		status.requestParams = paramsTableModel.getHeaders();
+		status.formData = formDataTableModel.getEntries();
+		status.binaryFilePath = binaryFileField.getText();
 		status.responseBody = responseBodyArea.getText();
 		status.responseHeaders = responseHeadersArea.getText();
 		status.logs = responseLogsArea.getText();
@@ -2737,13 +3043,71 @@ public class WebrunnerToolWindowPanel {
 		List<HeaderEntryState> headers = status != null ? status.requestHeaders : List.of();
 		List<HeaderEntryState> params = status != null ? status.requestParams : List.of();
 		String body = status != null ? status.requestBody : "";
+		List<FormEntryState> formData = status != null ? status.formData : List.of();
+		String binaryFilePath = status != null ? status.binaryFilePath : "";
+		String payloadType = details.payloadType == null ? "RAW" : details.payloadType;
 		String before = status != null ? status.beforeScript : "";
 		String after = status != null ? status.afterScript : "";
 
 		runInBackground(() -> {
 			ExecutionResult result =
-				executeWithScripts(method, details.url, headers, params, body, before, after, false, null);
+				executeWithScripts(
+					method,
+					details.url,
+					headers,
+					params,
+					body,
+					before,
+					after,
+					false,
+					null,
+					payloadType,
+					formData,
+					binaryFilePath
+				);
 			updateResponseUI(result, false);
+		});
+	}
+
+	private void executeHttpDownload() {
+		if (currentNode == null || currentNode.requestType != RequestType.HTTP) {
+			return;
+		}
+		saveCurrentEditors();
+		RequestDetailsState details = stateService.getRequestDetails(currentNode.id);
+		if (details == null || details.url == null || details.url.isBlank()) {
+			showLog("Missing URL.");
+			return;
+		}
+		String method = details.method == null ? "GET" : details.method;
+		RequestStatusState status = stateService.getRequestStatus(currentNode.id);
+		List<HeaderEntryState> headers = status != null ? status.requestHeaders : List.of();
+		List<HeaderEntryState> params = status != null ? status.requestParams : List.of();
+		String body = status != null ? status.requestBody : "";
+		List<FormEntryState> formData = status != null ? status.formData : List.of();
+		String binaryFilePath = status != null ? status.binaryFilePath : "";
+		String payloadType = details.payloadType == null ? "RAW" : details.payloadType;
+		String before = status != null ? status.beforeScript : "";
+		String after = status != null ? status.afterScript : "";
+
+		runInBackground(() -> {
+			DownloadResult result =
+				executeWithScriptsDownload(
+					method,
+					details.url,
+					headers,
+					params,
+					body,
+					before,
+					after,
+					payloadType,
+					formData,
+					binaryFilePath
+				);
+			updateResponseUI(result.result, false);
+			if (result.bodyBytes != null) {
+				SwingUtilities.invokeLater(() -> promptSaveDownload(result));
+			}
 		});
 	}
 
@@ -2803,14 +3167,21 @@ public class WebrunnerToolWindowPanel {
 		String before,
 		String after,
 		boolean forChain,
-		VarsStore sharedVars
+		VarsStore sharedVars,
+		String payloadType,
+		List<FormEntryState> formData,
+		String binaryFilePath
 	) {
 		VarsStore vars = sharedVars == null ? new VarsStore() : sharedVars;
 		List<String> logs = new ArrayList<>();
 		ScriptLogger logger = message -> logs.add(message);
 		ScriptHelpers helpers = new ScriptHelpers(logger);
 		ScriptRequest rawRequest = new ScriptRequest(body, cloneHeaders(headers), cloneHeaders(params));
+		rawRequest.setFormData(cloneFormData(formData));
+		rawRequest.setBinaryFilePath(binaryFilePath == null ? "" : binaryFilePath);
 		ScriptRequest scriptRequest = new ScriptRequest(body, cloneHeaders(headers), cloneHeaders(params));
+		scriptRequest.setFormData(cloneFormData(formData));
+		scriptRequest.setBinaryFilePath(binaryFilePath == null ? "" : binaryFilePath);
 
 		try {
 			scriptRuntime.runScript(
@@ -2827,24 +3198,43 @@ public class WebrunnerToolWindowPanel {
 		List<HeaderEntryState> templatedHeaders =
 			templateEngine.applyToHeaders(scriptRequest.getHeaders(), varsSnapshot);
 		List<HeaderEntryState> templatedParams = templateEngine.applyToParams(scriptRequest.getParams(), varsSnapshot);
+		List<FormEntryState> templatedFormData = templateEngine.applyToFormData(
+			scriptRequest.getFormData(),
+			varsSnapshot
+		);
+		String templatedBinaryPath = templateEngine.applyToText(
+			scriptRequest.getBinaryFilePath(),
+			varsSnapshot
+		);
 		String templatedUrlBase = templateEngine.applyToText(url, varsSnapshot);
 		String templatedUrl = applyQueryParams(templatedUrlBase, templatedParams);
 
 		try {
 			HttpExecutionResponse response =
-				httpExecutor.execute(method, templatedUrl, templatedHeaders, templatedBody);
+				httpExecutor.execute(
+					method,
+					templatedUrl,
+					templatedHeaders,
+					templatedBody,
+					templatedFormData,
+					templatedBinaryPath,
+					resolvePayloadType(payloadType)
+				);
 			try {
+				ScriptRequest afterRequest = new ScriptRequest(
+					templatedBody,
+					templatedHeaders,
+					templatedParams
+				);
+				afterRequest.setFormData(cloneFormData(templatedFormData));
+				afterRequest.setBinaryFilePath(templatedBinaryPath);
 				scriptRuntime.runScript(
 					after,
 					new ScriptContext(
 						vars,
 						logger,
 						helpers,
-						new ScriptRequest(
-							templatedBody,
-							templatedHeaders,
-							templatedParams
-						),
+						afterRequest,
 						rawRequest,
 						response
 					)
@@ -2863,6 +3253,103 @@ public class WebrunnerToolWindowPanel {
 		} catch (Exception error) {
 			logs.add("Request failed: " + error.getMessage());
 			return ExecutionResult.failure(logs);
+		}
+	}
+
+	private DownloadResult executeWithScriptsDownload(
+		String method,
+		String url,
+		List<HeaderEntryState> headers,
+		List<HeaderEntryState> params,
+		String body,
+		String before,
+		String after,
+		String payloadType,
+		List<FormEntryState> formData,
+		String binaryFilePath
+	) {
+		VarsStore vars = new VarsStore();
+		List<String> logs = new ArrayList<>();
+		ScriptLogger logger = message -> logs.add(message);
+		ScriptHelpers helpers = new ScriptHelpers(logger);
+		ScriptRequest rawRequest = new ScriptRequest(body, cloneHeaders(headers), cloneHeaders(params));
+		rawRequest.setFormData(cloneFormData(formData));
+		rawRequest.setBinaryFilePath(binaryFilePath == null ? "" : binaryFilePath);
+		ScriptRequest scriptRequest = new ScriptRequest(body, cloneHeaders(headers), cloneHeaders(params));
+		scriptRequest.setFormData(cloneFormData(formData));
+		scriptRequest.setBinaryFilePath(binaryFilePath == null ? "" : binaryFilePath);
+
+		try {
+			scriptRuntime.runScript(
+				before,
+				new ScriptContext(vars, logger, helpers, scriptRequest, rawRequest, null)
+			);
+		} catch (Exception error) {
+			logs.add("Before request error: " + error.getMessage());
+			return DownloadResult.failure(logs);
+		}
+
+		Map<String, Object> varsSnapshot = vars.entries();
+		String templatedBody = templateEngine.applyToBody(scriptRequest.getBody(), varsSnapshot);
+		List<HeaderEntryState> templatedHeaders =
+			templateEngine.applyToHeaders(scriptRequest.getHeaders(), varsSnapshot);
+		List<HeaderEntryState> templatedParams = templateEngine.applyToParams(scriptRequest.getParams(), varsSnapshot);
+		List<FormEntryState> templatedFormData = templateEngine.applyToFormData(
+			scriptRequest.getFormData(),
+			varsSnapshot
+		);
+		String templatedBinaryPath = templateEngine.applyToText(
+			scriptRequest.getBinaryFilePath(),
+			varsSnapshot
+		);
+		String templatedUrlBase = templateEngine.applyToText(url, varsSnapshot);
+		String templatedUrl = applyQueryParams(templatedUrlBase, templatedParams);
+
+		try {
+			HttpExecutionResponse response =
+				httpExecutor.executeBinary(
+					method,
+					templatedUrl,
+					templatedHeaders,
+					templatedBody,
+					templatedFormData,
+					templatedBinaryPath,
+					resolvePayloadType(payloadType)
+				);
+			try {
+				ScriptRequest afterRequest = new ScriptRequest(
+					templatedBody,
+					templatedHeaders,
+					templatedParams
+				);
+				afterRequest.setFormData(cloneFormData(templatedFormData));
+				afterRequest.setBinaryFilePath(templatedBinaryPath);
+				scriptRuntime.runScript(
+					after,
+					new ScriptContext(
+						vars,
+						logger,
+						helpers,
+						afterRequest,
+						rawRequest,
+						response
+					)
+				);
+			} catch (Exception error) {
+				logs.add("After request error: " + error.getMessage());
+			}
+			String responseHeaders = toJson(response.headers);
+			ExecutionResult result = new ExecutionResult(
+				response.statusCode,
+				"",
+				JsonUtils.prettyPrint(response.body),
+				responseHeaders,
+				String.join("\n", logs)
+			);
+			return new DownloadResult(result, response.bodyBytes, response.headers);
+		} catch (Exception error) {
+			logs.add("Request failed: " + error.getMessage());
+			return DownloadResult.failure(logs);
 		}
 	}
 
@@ -3108,7 +3595,10 @@ public class WebrunnerToolWindowPanel {
 										status.beforeScript,
 										status.afterScript,
 										true,
-										session.vars
+										session.vars,
+										details.payloadType,
+										status.formData,
+										status.binaryFilePath
 			);
 		} else if (details.type == RequestType.GRPC) {
 			if (details.service == null || details.service.isBlank() || details.grpcMethod == null ||
@@ -3210,7 +3700,30 @@ public class WebrunnerToolWindowPanel {
 		afterScriptArea.addDocumentListener(new EditorAutoSaveListener());
 		headersTableModel.addTableModelListener((TableModelEvent e) -> saveCurrentEditors());
 		paramsTableModel.addTableModelListener((TableModelEvent e) -> saveCurrentEditors());
+		formDataTableModel.addTableModelListener((TableModelEvent e) -> saveCurrentEditors());
+		binaryFileField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+			@Override
+			public void insertUpdate(javax.swing.event.DocumentEvent e) {
+				saveCurrentEditors();
+			}
+
+			@Override
+			public void removeUpdate(javax.swing.event.DocumentEvent e) {
+				saveCurrentEditors();
+			}
+
+			@Override
+			public void changedUpdate(javax.swing.event.DocumentEvent e) {
+				saveCurrentEditors();
+			}
+		});
 		httpMethodCombo.addActionListener(e -> saveCurrentEditors());
+		httpPayloadCombo.addActionListener(e -> {
+			switchPayloadType();
+			if (!isLoading) {
+				saveCurrentEditors();
+			}
+		});
 		grpcServiceCombo.addActionListener(e -> {
 			if (!isLoading && !isGrpcReloading) {
 				if (currentNode != null) {
@@ -4603,6 +5116,124 @@ public class WebrunnerToolWindowPanel {
 		responseLogsArea.setText(message);
 	}
 
+	private void appendResponseLog(String message) {
+		String existing = responseLogsArea.getText();
+		if (existing == null || existing.isBlank()) {
+			responseLogsArea.setText(message);
+			return;
+		}
+		responseLogsArea.setText(existing + "\n" + message);
+	}
+
+	private void promptSaveDownload(DownloadResult result) {
+		if (result == null || result.bodyBytes == null) {
+			return;
+		}
+		String suggestedName = suggestDownloadFilename(result.headers);
+		JFileChooser chooser = new JFileChooser();
+		chooser.setDialogTitle("Save Response");
+		if (suggestedName != null && !suggestedName.isBlank()) {
+			chooser.setSelectedFile(new File(suggestedName));
+		}
+		int dialogResult = chooser.showSaveDialog(root);
+		if (dialogResult != JFileChooser.APPROVE_OPTION) {
+			appendResponseLog("Download canceled.");
+			return;
+		}
+		File file = chooser.getSelectedFile();
+		if (file == null) {
+			appendResponseLog("Download canceled.");
+			return;
+		}
+		try {
+			Files.write(file.toPath(), result.bodyBytes);
+			appendResponseLog("Saved response to: " + file.getAbsolutePath());
+		} catch (Exception error) {
+			appendResponseLog("Failed to save response: " + error.getMessage());
+		}
+	}
+
+	private String suggestDownloadFilename(Map<String, List<String>> headers) {
+		String contentDisposition = firstHeaderValue(headers, "content-disposition");
+		String filename = extractFilenameFromDisposition(contentDisposition);
+		if (filename != null && !filename.isBlank()) {
+			return filename;
+		}
+		return "download.bin";
+	}
+
+	private String extractFilenameFromDisposition(String value) {
+		if (value == null || value.isBlank()) {
+			return null;
+		}
+		String lower = value.toLowerCase(Locale.ROOT);
+		int index = lower.indexOf("filename*=");
+		if (index >= 0) {
+			String part = value.substring(index + "filename*=".length()).trim();
+			part = trimDispositionPart(part);
+			int charsetIndex = part.indexOf("''");
+			if (charsetIndex >= 0) {
+				String encoded = part.substring(charsetIndex + 2);
+				try {
+					return URLDecoder.decode(stripQuotes(encoded), StandardCharsets.UTF_8);
+				} catch (Exception ignored) {
+					return stripQuotes(encoded);
+				}
+			}
+			return stripQuotes(part);
+		}
+		index = lower.indexOf("filename=");
+		if (index >= 0) {
+			String part = value.substring(index + "filename=".length()).trim();
+			part = trimDispositionPart(part);
+			return stripQuotes(part);
+		}
+		return null;
+	}
+
+	private String trimDispositionPart(String value) {
+		if (value == null) {
+			return null;
+		}
+		int semicolon = value.indexOf(';');
+		if (semicolon >= 0) {
+			return value.substring(0, semicolon).trim();
+		}
+		return value.trim();
+	}
+
+	private String stripQuotes(String value) {
+		if (value == null) {
+			return null;
+		}
+		String trimmed = value.trim();
+		if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
+			(trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+			return trimmed.substring(1, trimmed.length() - 1);
+		}
+		return trimmed;
+	}
+
+	private String firstHeaderValue(Map<String, List<String>> headers, String name) {
+		if (headers == null || name == null) {
+			return null;
+		}
+		for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
+			if (entry.getKey() == null) {
+				continue;
+			}
+			if (!entry.getKey().equalsIgnoreCase(name)) {
+				continue;
+			}
+			List<String> values = entry.getValue();
+			if (values == null || values.isEmpty()) {
+				return null;
+			}
+			return values.get(0);
+		}
+		return null;
+	}
+
 	private String safe(String value) {
 		return value == null ? "" : value;
 	}
@@ -4810,6 +5441,23 @@ public class WebrunnerToolWindowPanel {
 		return copy;
 	}
 
+	private List<FormEntryState> cloneFormData(List<FormEntryState> entries) {
+		List<FormEntryState> copy = new ArrayList<>();
+		if (entries == null) {
+			return copy;
+		}
+		for (FormEntryState entry : entries) {
+			FormEntryState clone = new FormEntryState();
+			clone.id = entry.id;
+			clone.name = entry.name;
+			clone.value = entry.value;
+			clone.enabled = entry.enabled;
+			clone.file = entry.file;
+			copy.add(clone);
+		}
+		return copy;
+	}
+
 	private String toJson(Object value) {
 		try {
 			return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(value);
@@ -4934,6 +5582,63 @@ public class WebrunnerToolWindowPanel {
 		dialog.setVisible(true);
 	}
 
+	private void openSettingsDialog() {
+		JDialog dialog = new JDialog();
+		dialog.setTitle("Settings");
+		JTabbedPane tabs = new JTabbedPane();
+
+		JPanel headersPanel = new JPanel(new BorderLayout());
+		JTable presetsTable = new JTable(headerPresetTableModel);
+		headerPresetTableModel.setPresets(headerPresets);
+		presetsTable.setFillsViewportHeight(true);
+		headersPanel.add(new JBScrollPane(presetsTable), BorderLayout.CENTER);
+
+		JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT));
+		JButton addPreset = new JButton("Add");
+		JButton removePreset = new JButton("Remove");
+		actions.add(addPreset);
+		actions.add(removePreset);
+		addPreset.addActionListener(e -> headerPresetTableModel.addEmptyRow());
+		removePreset.addActionListener(e -> {
+			int row = presetsTable.getSelectedRow();
+			headerPresetTableModel.removeRow(row);
+		});
+		headersPanel.add(actions, BorderLayout.SOUTH);
+
+		tabs.add("Headers", headersPanel);
+
+		JPanel footer = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+		JButton saveButton = new JButton("Save");
+		JButton cancelButton = new JButton("Cancel");
+		footer.add(saveButton);
+		footer.add(cancelButton);
+		saveButton.addActionListener(e -> {
+			if (presetsTable.isEditing()) {
+				TableCellEditor editor = presetsTable.getCellEditor();
+				if (editor != null) {
+					editor.stopCellEditing();
+				}
+			}
+			headerPresets = headerPresetTableModel.getPresets();
+			stateService.saveHeaderPresets(headerPresets);
+			if (currentNode != null && currentNode.requestType == RequestType.GRPC) {
+				updateHeaderNameEditor(RequestType.GRPC);
+			} else {
+				updateHeaderNameEditor(RequestType.HTTP);
+			}
+			dialog.dispose();
+		});
+		cancelButton.addActionListener(e -> dialog.dispose());
+
+		dialog.getContentPane().setLayout(new BorderLayout());
+		dialog.getContentPane().add(tabs, BorderLayout.CENTER);
+		dialog.getContentPane().add(footer, BorderLayout.SOUTH);
+		dialog.setSize(700, 500);
+		dialog.setLocationRelativeTo(root);
+		dialog.setModal(false);
+		dialog.setVisible(true);
+	}
+
 	private void startDebugCall() {
 		if (currentNode == null || currentNode.type != NodeType.REQUEST ||
 			currentNode.requestType == RequestType.CHAIN) {
@@ -4971,6 +5676,23 @@ public class WebrunnerToolWindowPanel {
 
 		static ExecutionResult failure(List<String> logs) {
 			return new ExecutionResult(0, "", "", "{}", String.join("\n", logs));
+		}
+	}
+
+	private static class DownloadResult {
+
+		final ExecutionResult result;
+		final byte[] bodyBytes;
+		final Map<String, List<String>> headers;
+
+		DownloadResult(ExecutionResult result, byte[] bodyBytes, Map<String, List<String>> headers) {
+			this.result = result;
+			this.bodyBytes = bodyBytes;
+			this.headers = headers;
+		}
+
+		static DownloadResult failure(List<String> logs) {
+			return new DownloadResult(ExecutionResult.failure(logs), null, Map.of());
 		}
 	}
 
@@ -5226,11 +5948,16 @@ public class WebrunnerToolWindowPanel {
 				lines.add("Service: " + (service.isBlank() ? "<missing>" : service));
 				lines.add("Method: " + (method.isBlank() ? "<missing>" : method));
 			}
-			lines.addAll(formatRequestSnapshot(
+			ScriptRequest snapshot = new ScriptRequest(
 				status == null ? "" : status.requestBody,
-				status == null ? List.of() : status.requestParams,
-				status == null ? List.of() : status.requestHeaders
-			));
+				status == null ? List.of() : status.requestHeaders,
+				status == null ? List.of() : status.requestParams
+			);
+			if (status != null) {
+				snapshot.setFormData(cloneFormData(status.formData));
+				snapshot.setBinaryFilePath(status.binaryFilePath);
+			}
+			lines.addAll(formatRequestSnapshot(snapshot));
 			long duration = System.nanoTime() - start;
 			return new DebugStageResult("Current Request", duration, lines, true);
 		}
@@ -5241,6 +5968,8 @@ public class WebrunnerToolWindowPanel {
 			String body = status == null ? "" : safe(status.requestBody);
 			List<HeaderEntryState> headers = status == null ? List.of() : status.requestHeaders;
 			List<HeaderEntryState> params = status == null ? List.of() : status.requestParams;
+			List<FormEntryState> formData = status == null ? List.of() : status.formData;
+			String binaryFilePath = status == null ? "" : safe(status.binaryFilePath);
 			String before = status == null ? "" : safe(status.beforeScript);
 
 			logs = new ArrayList<>();
@@ -5248,7 +5977,11 @@ public class WebrunnerToolWindowPanel {
 			helpers = new ScriptHelpers(logger);
 			vars = new VarsStore();
 			rawRequest = new ScriptRequest(body, cloneHeaders(headers), cloneHeaders(params));
+			rawRequest.setFormData(cloneFormData(formData));
+			rawRequest.setBinaryFilePath(binaryFilePath);
 			beforeRequest = new ScriptRequest(body, cloneHeaders(headers), cloneHeaders(params));
+			beforeRequest.setFormData(cloneFormData(formData));
+			beforeRequest.setBinaryFilePath(binaryFilePath);
 
 			validationError = validateDetails();
 			if (validationError != null) {
@@ -5272,18 +6005,29 @@ public class WebrunnerToolWindowPanel {
 				templatedBody = templateEngine.applyToBody(beforeRequest.getBody(), varsSnapshot);
 				templatedHeaders = templateEngine.applyToHeaders(beforeRequest.getHeaders(), varsSnapshot);
 				templatedParams = templateEngine.applyToParams(beforeRequest.getParams(), varsSnapshot);
+				List<FormEntryState> templatedFormData =
+					templateEngine.applyToFormData(beforeRequest.getFormData(), varsSnapshot);
+				String templatedBinaryPath = templateEngine.applyToText(
+					beforeRequest.getBinaryFilePath(),
+					varsSnapshot
+				);
 				if (requestType == RequestType.HTTP) {
 					String url = details == null || details.url == null ? "" : details.url;
 					String templatedUrlBase = templateEngine.applyToText(url, varsSnapshot);
 					templatedUrl = applyQueryParams(templatedUrlBase, templatedParams);
 				}
+				currentRequest = new ScriptRequest(templatedBody, templatedHeaders, templatedParams);
+				currentRequest.setFormData(cloneFormData(templatedFormData));
+				currentRequest.setBinaryFilePath(templatedBinaryPath);
 			} else {
 				templatedBody = beforeRequest.getBody();
 				templatedHeaders = beforeRequest.getHeaders();
 				templatedParams = beforeRequest.getParams();
 				templatedUrl = details == null || details.url == null ? "" : details.url;
+				currentRequest = new ScriptRequest(templatedBody, templatedHeaders, templatedParams);
+				currentRequest.setFormData(cloneFormData(beforeRequest.getFormData()));
+				currentRequest.setBinaryFilePath(beforeRequest.getBinaryFilePath());
 			}
-			currentRequest = new ScriptRequest(templatedBody, templatedHeaders, templatedParams);
 
 			if (requestType == RequestType.HTTP) {
 				String method = details == null || details.method == null ? "GET" : details.method;
@@ -5299,9 +6043,7 @@ public class WebrunnerToolWindowPanel {
 			}
 
 			lines.add("Request:");
-			lines.addAll(formatRequestSnapshot(templatedBody, templatedParams, templatedHeaders));
-			lines.add("rawRequest:");
-			lines.addAll(formatRequestSnapshot(rawRequest.getBody(), rawRequest.getParams(), rawRequest.getHeaders()));
+			lines.addAll(formatRequestSnapshot(currentRequest));
 			lines.addAll(formatLogs("Before request logs", beforeLogs));
 			if (beforeFailed) {
 				lines.add("Request will not be sent.");
@@ -5322,7 +6064,20 @@ public class WebrunnerToolWindowPanel {
 			try {
 				if (requestType == RequestType.HTTP) {
 					String method = details == null || details.method == null ? "GET" : details.method;
-					httpResponse = httpExecutor.execute(method, templatedUrl, templatedHeaders, templatedBody);
+					String payloadType = details == null ? "RAW" : details.payloadType;
+					List<FormEntryState> formData =
+						currentRequest == null ? List.of() : currentRequest.getFormData();
+					String binaryPath =
+						currentRequest == null ? "" : currentRequest.getBinaryFilePath();
+					httpResponse = httpExecutor.execute(
+						method,
+						templatedUrl,
+						templatedHeaders,
+						templatedBody,
+						formData,
+						binaryPath,
+						resolvePayloadType(payloadType)
+					);
 				} else {
 					grpcResponse = grpcExecutor.execute(
 						details.target,
@@ -5372,6 +6127,10 @@ public class WebrunnerToolWindowPanel {
 				int logStart = logs.size();
 				String after = status == null ? "" : safe(status.afterScript);
 				afterRequest = new ScriptRequest(templatedBody, cloneHeaders(templatedHeaders), cloneHeaders(templatedParams));
+				if (currentRequest != null) {
+					afterRequest.setFormData(cloneFormData(currentRequest.getFormData()));
+					afterRequest.setBinaryFilePath(currentRequest.getBinaryFilePath());
+				}
 				try {
 					Object response = requestType == RequestType.HTTP ? httpResponse : grpcResponse;
 					scriptRuntime.runScript(
@@ -5395,7 +6154,7 @@ public class WebrunnerToolWindowPanel {
 			if (finalRequest == null) {
 				finalRequest = new ScriptRequest("", List.of(), List.of());
 			}
-			lines.addAll(formatRequestSnapshot(finalRequest.getBody(), finalRequest.getParams(), finalRequest.getHeaders()));
+			lines.addAll(formatRequestSnapshot(finalRequest));
 			lines.addAll(formatLogs("Logs after request", logs == null ? List.of() : logs));
 			long duration = System.nanoTime() - start;
 			return new DebugStageResult("Final State", duration, lines, false);
@@ -5428,8 +6187,9 @@ public class WebrunnerToolWindowPanel {
 			if (outputArea.getDocument().getLength() > 0) {
 				outputArea.append("\n");
 			}
+			outputArea.append("========================================\n");
 			outputArea.append(header + "\n");
-			outputArea.append("-----\n");
+			outputArea.append("========================================\n");
 			if (result.lines == null || result.lines.isEmpty()) {
 				outputArea.append("<empty>\n");
 				return;
@@ -5446,16 +6206,18 @@ public class WebrunnerToolWindowPanel {
 			return seconds + "s:" + String.format("%03dms", remain);
 		}
 
-		private List<String> formatRequestSnapshot(
-			String body,
-			List<HeaderEntryState> params,
-			List<HeaderEntryState> headers
-		) {
+		private List<String> formatRequestSnapshot(ScriptRequest request) {
 			List<String> lines = new ArrayList<>();
+			if (request == null) {
+				lines.add("<empty>");
+				return lines;
+			}
 			lines.add("Body:");
-			appendTextBlock(lines, body);
-			appendHeaderEntries(lines, "Params", params);
-			appendHeaderEntries(lines, "Headers", headers);
+			appendTextBlock(lines, request.getBody());
+			appendHeaderEntries(lines, "Params", request.getParams());
+			appendHeaderEntries(lines, "Headers", request.getHeaders());
+			appendFormEntries(lines, request.getFormData());
+			appendBinaryPath(lines, request.getBinaryFilePath());
 			return lines;
 		}
 
@@ -5503,6 +6265,33 @@ public class WebrunnerToolWindowPanel {
 			}
 		}
 
+		private void appendFormEntries(List<String> lines, List<FormEntryState> entries) {
+			lines.add("Form Data:");
+			if (entries == null || entries.isEmpty()) {
+				lines.add("<empty>");
+				return;
+			}
+			for (FormEntryState entry : entries) {
+				if (entry == null) {
+					continue;
+				}
+				String name = entry.name == null ? "" : entry.name;
+				String value = entry.value == null ? "" : entry.value;
+				String enabled = entry.enabled ? "enabled" : "disabled";
+				String type = entry.file ? "file" : "text";
+				lines.add(name + ": " + (value.isBlank() ? "<empty>" : value) + " (" + type + ", " + enabled + ")");
+			}
+		}
+
+		private void appendBinaryPath(List<String> lines, String path) {
+			lines.add("Binary File:");
+			if (path == null || path.isBlank()) {
+				lines.add("<empty>");
+			} else {
+				lines.add(path);
+			}
+		}
+
 		private void appendTextBlock(List<String> lines, String text) {
 			if (text == null || text.isBlank()) {
 				lines.add("<empty>");
@@ -5510,6 +6299,95 @@ public class WebrunnerToolWindowPanel {
 			}
 			String[] parts = text.split("\\R", -1);
 			Collections.addAll(lines, parts);
+		}
+
+		private boolean requestsEqual(ScriptRequest a, ScriptRequest b) {
+			if (a == b) {
+				return true;
+			}
+			if (a == null || b == null) {
+				return false;
+			}
+			if (!Objects.equals(safe(a.getBody()), safe(b.getBody()))) {
+				return false;
+			}
+			if (!headerListsEqual(a.getHeaders(), b.getHeaders())) {
+				return false;
+			}
+			if (!headerListsEqual(a.getParams(), b.getParams())) {
+				return false;
+			}
+			if (!formListsEqual(a.getFormData(), b.getFormData())) {
+				return false;
+			}
+			return Objects.equals(safe(a.getBinaryFilePath()), safe(b.getBinaryFilePath()));
+		}
+
+		private boolean headerListsEqual(List<HeaderEntryState> left, List<HeaderEntryState> right) {
+			if (left == null) {
+				left = List.of();
+			}
+			if (right == null) {
+				right = List.of();
+			}
+			if (left.size() != right.size()) {
+				return false;
+			}
+			for (int i = 0; i < left.size(); i++) {
+				HeaderEntryState a = left.get(i);
+				HeaderEntryState b = right.get(i);
+				if (a == b) {
+					continue;
+				}
+				if (a == null || b == null) {
+					return false;
+				}
+				if (!Objects.equals(a.name, b.name)) {
+					return false;
+				}
+				if (!Objects.equals(a.value, b.value)) {
+					return false;
+				}
+				if (a.enabled != b.enabled) {
+					return false;
+				}
+			}
+			return true;
+		}
+
+		private boolean formListsEqual(List<FormEntryState> left, List<FormEntryState> right) {
+			if (left == null) {
+				left = List.of();
+			}
+			if (right == null) {
+				right = List.of();
+			}
+			if (left.size() != right.size()) {
+				return false;
+			}
+			for (int i = 0; i < left.size(); i++) {
+				FormEntryState a = left.get(i);
+				FormEntryState b = right.get(i);
+				if (a == b) {
+					continue;
+				}
+				if (a == null || b == null) {
+					return false;
+				}
+				if (!Objects.equals(a.name, b.name)) {
+					return false;
+				}
+				if (!Objects.equals(a.value, b.value)) {
+					return false;
+				}
+				if (a.enabled != b.enabled) {
+					return false;
+				}
+				if (a.file != b.file) {
+					return false;
+				}
+			}
+			return true;
 		}
 	}
 
