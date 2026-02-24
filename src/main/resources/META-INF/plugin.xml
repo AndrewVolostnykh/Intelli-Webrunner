@@ -3,7 +3,7 @@
     <name>Intelli Webrunner</name>
     <vendor email="support@example.com">Intelli Webrunner</vendor>
     <description>API testing tool window with HTTP, gRPC, and chain execution.</description>
-    <version>0.7.0</version>
+    <version>0.9.0</version>
 
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.json</depends>
