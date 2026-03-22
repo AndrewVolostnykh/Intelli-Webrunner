@@ -126,6 +126,8 @@ import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.KeyboardFocusManager;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.awt.datatransfer.DataFlavor;
@@ -3678,19 +3680,9 @@ public class WebrunnerToolWindowPanel {
 
 	private void attachAutoSaveListeners() {
 		httpUrlField.getDocument().addDocumentListener(new AutoSaveListener());
-		httpUrlField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+		httpUrlField.addFocusListener(new FocusAdapter() {
 			@Override
-			public void insertUpdate(javax.swing.event.DocumentEvent e) {
-				scheduleParamsSyncFromUrl();
-			}
-
-			@Override
-			public void removeUpdate(javax.swing.event.DocumentEvent e) {
-				scheduleParamsSyncFromUrl();
-			}
-
-			@Override
-			public void changedUpdate(javax.swing.event.DocumentEvent e) {
+			public void focusLost(FocusEvent e) {
 				scheduleParamsSyncFromUrl();
 			}
 		});
@@ -3699,7 +3691,10 @@ public class WebrunnerToolWindowPanel {
 		beforeScriptArea.addDocumentListener(new EditorAutoSaveListener());
 		afterScriptArea.addDocumentListener(new EditorAutoSaveListener());
 		headersTableModel.addTableModelListener((TableModelEvent e) -> saveCurrentEditors());
-		paramsTableModel.addTableModelListener((TableModelEvent e) -> saveCurrentEditors());
+		paramsTableModel.addTableModelListener((TableModelEvent e) -> {
+			syncUrlFromParamsTable();
+			saveCurrentEditors();
+		});
 		formDataTableModel.addTableModelListener((TableModelEvent e) -> saveCurrentEditors());
 		binaryFileField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
 			@Override
@@ -5289,8 +5284,65 @@ public class WebrunnerToolWindowPanel {
 		return builder.append(fragment).toString();
 	}
 
+	private String replaceQueryParams(
+		String url,
+		List<HeaderEntryState> params
+	) {
+		if (url == null) {
+			return "";
+		}
+		String base = url;
+		String fragment = "";
+		int hashIndex = url.indexOf('#');
+		if (hashIndex >= 0) {
+			base = url.substring(0, hashIndex);
+			fragment = url.substring(hashIndex);
+		}
+		int queryIndex = base.indexOf('?');
+		if (queryIndex >= 0) {
+			base = base.substring(0, queryIndex);
+		}
+		if (params == null || params.isEmpty()) {
+			return base + fragment;
+		}
+		StringBuilder queryBuilder = new StringBuilder();
+		boolean first = true;
+		for (HeaderEntryState param : params) {
+			if (param == null || !param.enabled) {
+				continue;
+			}
+			String name = param.name == null ? "" : param.name.trim();
+			if (name.isEmpty()) {
+				continue;
+			}
+			String value = param.value == null ? "" : param.value;
+			if (!first) {
+				queryBuilder.append('&');
+			}
+			queryBuilder.append(encodeParam(name));
+			queryBuilder.append('=');
+			queryBuilder.append(encodeParam(value));
+			first = false;
+		}
+		if (queryBuilder.length() == 0) {
+			return base + fragment;
+		}
+		return base + "?" + queryBuilder + fragment;
+	}
+
 	private String encodeParam(String value) {
 		return URLEncoder.encode(value, StandardCharsets.UTF_8);
+	}
+
+	private void syncUrlFromParamsTable() {
+		if (isLoading || isSyncingParamsFromUrl || currentNode == null || currentNode.requestType != RequestType.HTTP) {
+			return;
+		}
+		String currentUrl = httpUrlField.getText();
+		String updatedUrl = replaceQueryParams(currentUrl, paramsTableModel.getHeaders());
+		if (!Objects.equals(currentUrl, updatedUrl)) {
+			httpUrlField.setText(updatedUrl);
+		}
 	}
 
 	private void syncParamsFromUrlField() {
@@ -5307,6 +5359,7 @@ public class WebrunnerToolWindowPanel {
 		} finally {
 			isSyncingParamsFromUrl = false;
 		}
+		saveCurrentEditors();
 	}
 
 	private void scheduleParamsSyncFromUrl() {
