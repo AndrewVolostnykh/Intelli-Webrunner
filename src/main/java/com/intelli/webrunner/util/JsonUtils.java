@@ -16,4 +16,12 @@ public class JsonUtils {
             return body;
         }
     }
+
+    public static String toJson(Object value) {
+        try {
+            return MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(value);
+        } catch (Exception e) {
+            return String.valueOf(value);
+        }
+    }
 }
