@@ -75,6 +75,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.IntConsumer;
 
 
 /**
@@ -96,6 +97,7 @@ public final class RequestEditorPanel {
 	private final ObjectMapper mapper = new ObjectMapper();
 
 	private final JPanel root = new JPanel(new BorderLayout());
+	private static final Dimension ICON_BUTTON_SIZE = new Dimension(28, 28);
 
 	private NodeState activeNode;
 	private boolean isLoading = false;
@@ -277,15 +279,9 @@ public final class RequestEditorPanel {
 	private JPanel buildHttpTopBar() {
 		JPanel topBar = new JPanel(new FlowLayout(FlowLayout.LEFT));
 		httpUrlField.setColumns(40);
-		httpSendButton.setToolTipText("Send");
-		httpSendButton.setMargin(new Insets(0, 0, 0, 0));
-		httpSendButton.setPreferredSize(new Dimension(28, 28));
-		httpSendDownloadButton.setToolTipText("Send and Download");
-		httpSendDownloadButton.setMargin(new Insets(0, 0, 0, 0));
-		httpSendDownloadButton.setPreferredSize(new Dimension(28, 28));
-		httpDebugButton.setToolTipText("Debug Call");
-		httpDebugButton.setMargin(new Insets(0, 0, 0, 0));
-		httpDebugButton.setPreferredSize(new Dimension(28, 28));
+		configureIconButton(httpSendButton, "Send");
+		configureIconButton(httpSendDownloadButton, "Send and Download");
+		configureIconButton(httpDebugButton, "Debug Call");
 		topBar.add(httpMethodCombo);
 		topBar.add(httpPayloadCombo);
 		topBar.add(new JLabel("URL"));
@@ -341,15 +337,9 @@ public final class RequestEditorPanel {
 		constraints.fill = GridBagConstraints.HORIZONTAL;
 		topBar.add(grpcMethodCombo, constraints);
 
-		grpcReloadButton.setToolTipText("Reload");
-		grpcReloadButton.setMargin(new Insets(0, 0, 0, 0));
-		grpcReloadButton.setPreferredSize(new Dimension(28, 28));
-		grpcSendButton.setToolTipText("Send");
-		grpcSendButton.setMargin(new Insets(0, 0, 0, 0));
-		grpcSendButton.setPreferredSize(new Dimension(28, 28));
-		grpcDebugButton.setToolTipText("Debug Call");
-		grpcDebugButton.setMargin(new Insets(0, 0, 0, 0));
-		grpcDebugButton.setPreferredSize(new Dimension(28, 28));
+		configureIconButton(grpcReloadButton, "Reload");
+		configureIconButton(grpcSendButton, "Send");
+		configureIconButton(grpcDebugButton, "Debug Call");
 
 		constraints.gridx = 6;
 		constraints.weightx = 0;
@@ -364,8 +354,6 @@ public final class RequestEditorPanel {
 
 		constraints.gridx = 9;
 		JButton menuButton = createRequestMenuButton();
-		menuButton.setPreferredSize(new Dimension(28, 28));
-		menuButton.setMargin(new Insets(0, 0, 0, 0));
 		topBar.add(menuButton, constraints);
 
 		grpcReloadButton.addActionListener(e -> reloadGrpcServices());
@@ -375,11 +363,16 @@ public final class RequestEditorPanel {
 	}
 
 	private JButton createRequestMenuButton() {
-		JButton button = new JButton("⋮");
-		button.setMargin(new Insets(0, 0, 0, 0));
-		button.setPreferredSize(new Dimension(28, 28));
+		JButton button = new JButton("\u22EE");
+		configureIconButton(button, "Request actions");
 		button.addActionListener(e -> showRequestMenu(button));
 		return button;
+	}
+
+	private void configureIconButton(JButton button, String tooltip) {
+		button.setToolTipText(tooltip);
+		button.setMargin(new Insets(0, 0, 0, 0));
+		button.setPreferredSize(ICON_BUTTON_SIZE);
 	}
 
 	private void showRequestMenu(JButton anchor) {
@@ -415,57 +408,62 @@ public final class RequestEditorPanel {
 	}
 
 	private JPanel buildHeadersPanel() {
-		JPanel panel = new JPanel(new BorderLayout());
-		headersTable.setFillsViewportHeight(true);
-		configureHeadersTableColumns();
-		panel.add(new JBScrollPane(headersTable), BorderLayout.CENTER);
-
-		JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT));
-		actions.add(addHeaderButton);
-		actions.add(removeHeaderButton);
-		addHeaderButton.addActionListener(e -> headersTableModel.addEmptyRow());
-		removeHeaderButton.addActionListener(e -> {
-			int index = headersTable.getSelectedRow();
-			headersTableModel.removeRow(index);
-		});
-		panel.add(actions, BorderLayout.SOUTH);
-		return panel;
+		return buildTablePanel(
+			headersTable,
+			this::configureHeadersTableColumns,
+			addHeaderButton,
+			removeHeaderButton,
+			headersTableModel::addEmptyRow,
+			headersTableModel::removeRow
+		);
 	}
 
 	private JPanel buildParamsPanel() {
-		JPanel panel = new JPanel(new BorderLayout());
-		paramsTable.setFillsViewportHeight(true);
-		configureParamsTableColumns();
-		panel.add(new JBScrollPane(paramsTable), BorderLayout.CENTER);
-
-		JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT));
-		actions.add(addParamButton);
-		actions.add(removeParamButton);
-		addParamButton.addActionListener(e -> paramsTableModel.addEmptyRow());
-		removeParamButton.addActionListener(e -> {
-			int index = paramsTable.getSelectedRow();
-			paramsTableModel.removeRow(index);
-		});
-		panel.add(actions, BorderLayout.SOUTH);
-		return panel;
+		return buildTablePanel(
+			paramsTable,
+			this::configureParamsTableColumns,
+			addParamButton,
+			removeParamButton,
+			paramsTableModel::addEmptyRow,
+			paramsTableModel::removeRow
+		);
 	}
 
 	private JPanel buildFormDataPanel() {
+		chooseFormFileButton.addActionListener(e -> chooseFormDataFile());
+		return buildTablePanel(
+			formDataTable,
+			this::configureFormDataTableColumns,
+			addFormDataButton,
+			removeFormDataButton,
+			formDataTableModel::addEmptyRow,
+			formDataTableModel::removeRow,
+			chooseFormFileButton
+		);
+	}
+
+	private JPanel buildTablePanel(
+		JTable table,
+		Runnable configureColumns,
+		JButton addButton,
+		JButton removeButton,
+		Runnable addRow,
+		IntConsumer removeRow,
+		JButton... extraButtons
+	) {
 		JPanel panel = new JPanel(new BorderLayout());
-		formDataTable.setFillsViewportHeight(true);
-		configureFormDataTableColumns();
-		panel.add(new JBScrollPane(formDataTable), BorderLayout.CENTER);
+		table.setFillsViewportHeight(true);
+		configureColumns.run();
+		panel.add(new JBScrollPane(table), BorderLayout.CENTER);
 
 		JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT));
-		actions.add(addFormDataButton);
-		actions.add(removeFormDataButton);
-		actions.add(chooseFormFileButton);
-		addFormDataButton.addActionListener(e -> formDataTableModel.addEmptyRow());
-		removeFormDataButton.addActionListener(e -> {
-			int index = formDataTable.getSelectedRow();
-			formDataTableModel.removeRow(index);
-		});
-		chooseFormFileButton.addActionListener(e -> chooseFormDataFile());
+		actions.add(addButton);
+		actions.add(removeButton);
+		for (JButton extraButton : extraButtons) {
+			actions.add(extraButton);
+		}
+		addButton.addActionListener(e -> addRow.run());
+		removeButton.addActionListener(e -> removeRow.accept(table.getSelectedRow()));
 		panel.add(actions, BorderLayout.SOUTH);
 		return panel;
 	}
@@ -483,13 +481,7 @@ public final class RequestEditorPanel {
 	}
 
 	private void chooseBinaryFile() {
-		JFileChooser chooser = new JFileChooser();
-		chooser.setDialogTitle("Select Binary File");
-		int result = chooser.showOpenDialog(root);
-		if (result != JFileChooser.APPROVE_OPTION) {
-			return;
-		}
-		File file = chooser.getSelectedFile();
+		File file = chooseFile("Select Binary File");
 		if (file != null) {
 			binaryFileField.setText(file.getAbsolutePath());
 		}
@@ -500,50 +492,46 @@ public final class RequestEditorPanel {
 		if (row < 0) {
 			return;
 		}
-		JFileChooser chooser = new JFileChooser();
-		chooser.setDialogTitle("Select Form Data File");
-		int result = chooser.showOpenDialog(root);
-		if (result != JFileChooser.APPROVE_OPTION) {
-			return;
-		}
-		File file = chooser.getSelectedFile();
+		File file = chooseFile("Select Form Data File");
 		if (file != null) {
 			formDataTableModel.setValueAt("File", row, 2);
 			formDataTableModel.setValueAt(file.getAbsolutePath(), row, 3);
 		}
 	}
 
+	private File chooseFile(String title) {
+		JFileChooser chooser = new JFileChooser();
+		chooser.setDialogTitle(title);
+		return chooser.showOpenDialog(root) == JFileChooser.APPROVE_OPTION ? chooser.getSelectedFile() : null;
+	}
+
 	private void configureHeadersTableColumns() {
-		TableColumn enabledColumn = headersTable.getColumnModel().getColumn(0);
-		enabledColumn.setPreferredWidth(60);
-		enabledColumn.setMinWidth(60);
-		enabledColumn.setMaxWidth(60);
-		enabledColumn.setResizable(false);
+		configureEnabledColumn(headersTable);
 
 		headersTable.getColumnModel().getColumn(1).setCellEditor(createHeaderNameEditor(COMMON_HEADER_NAMES));
 		headersTable.getColumnModel().getColumn(2).setCellEditor(new HeaderValueCellEditor(this::buildHeaderPresetMap));
 	}
 
 	private void configureParamsTableColumns() {
-		TableColumn enabledColumn = paramsTable.getColumnModel().getColumn(0);
-		enabledColumn.setPreferredWidth(60);
-		enabledColumn.setMinWidth(60);
-		enabledColumn.setMaxWidth(60);
-		enabledColumn.setResizable(false);
+		configureEnabledColumn(paramsTable);
 	}
 
 	private void configureFormDataTableColumns() {
-		TableColumn enabledColumn = formDataTable.getColumnModel().getColumn(0);
-		enabledColumn.setPreferredWidth(60);
-		enabledColumn.setMinWidth(60);
-		enabledColumn.setMaxWidth(60);
-		enabledColumn.setResizable(false);
+		configureEnabledColumn(formDataTable);
 
 		TableColumn typeColumn = formDataTable.getColumnModel().getColumn(2);
 		JComboBox<String> typeCombo = new JComboBox<>(new String[] {"Text", "File"});
 		typeColumn.setCellEditor(new javax.swing.DefaultCellEditor(typeCombo));
 		typeColumn.setPreferredWidth(90);
 		typeColumn.setMaxWidth(120);
+	}
+
+	private void configureEnabledColumn(JTable table) {
+		TableColumn enabledColumn = table.getColumnModel().getColumn(0);
+		enabledColumn.setPreferredWidth(60);
+		enabledColumn.setMinWidth(60);
+		enabledColumn.setMaxWidth(60);
+		enabledColumn.setResizable(false);
 	}
 
 	private void updateHeaderNameEditor(RequestType type) {
@@ -665,21 +653,14 @@ public final class RequestEditorPanel {
 		httpMethodCombo.setSelectedItem(details != null && details.method != null ? details.method : "GET");
 		httpPayloadCombo.setSelectedItem(PayloadTypes.resolveLabel(details != null ? details.payloadType : null));
 		httpUrlField.setText(details != null && details.url != null ? details.url : "");
-		requestBodyArea.setText(status != null ? safe(status.requestBody) : "");
+		loadSharedStatus(status);
 		formDataTableModel.setEntries(status != null ? status.formData : List.of());
 		binaryFileField.setText(status != null ? safe(status.binaryFilePath) : "");
-		beforeScriptArea.setText(status != null ? safe(status.beforeScript) : "");
-		afterScriptArea.setText(status != null ? safe(status.afterScript) : "");
 		headersTableModel.setHeaders(status != null ? status.requestHeaders : List.of(), true);
 		List<HeaderEntryState> mergedParams =
 			UrlParamUtils.mergeParamsWithUrl(status != null ? status.requestParams : List.of(),
 				details != null ? details.url : null);
 		paramsTableModel.setHeaders(mergedParams, true);
-		responseViewer.setContent(
-			status != null ? safe(status.responseBody) : "",
-			status != null ? safe(status.responseHeaders) : "",
-			status != null ? safe(status.logs) : ""
-		);
 		switchPayloadType();
 		isLoading = false;
 	}
@@ -690,17 +671,10 @@ public final class RequestEditorPanel {
 		RequestStatusState status = stateService.getRequestStatus(requestId);
 		updateHeaderNameEditor(RequestType.GRPC);
 		grpcTargetField.setText(details != null ? safe(details.target) : "");
-		requestBodyArea.setText(status != null ? safe(status.requestBody) : "");
+		loadSharedStatus(status);
 		bodyCards.show(bodyPanel, "raw");
-		beforeScriptArea.setText(status != null ? safe(status.beforeScript) : "");
-		afterScriptArea.setText(status != null ? safe(status.afterScript) : "");
 		headersTableModel.setHeaders(status != null ? status.requestHeaders : List.of(), false);
 		paramsTableModel.setHeaders(status != null ? status.requestParams : List.of(), true);
-		responseViewer.setContent(
-			status != null ? safe(status.responseBody) : "",
-			status != null ? safe(status.responseHeaders) : "",
-			status != null ? safe(status.logs) : ""
-		);
 		isLoading = false;
 		if (details != null && details.target != null && !details.target.isBlank()) {
 			if (details.service != null) {
@@ -708,6 +682,17 @@ public final class RequestEditorPanel {
 			}
 			reloadGrpcServices();
 		}
+	}
+
+	private void loadSharedStatus(RequestStatusState status) {
+		requestBodyArea.setText(status != null ? safe(status.requestBody) : "");
+		beforeScriptArea.setText(status != null ? safe(status.beforeScript) : "");
+		afterScriptArea.setText(status != null ? safe(status.afterScript) : "");
+		responseViewer.setContent(
+			status != null ? safe(status.responseBody) : "",
+			status != null ? safe(status.responseHeaders) : "",
+			status != null ? safe(status.logs) : ""
+		);
 	}
 
 	public void saveActive() {
@@ -747,12 +732,7 @@ public final class RequestEditorPanel {
 	}
 
 	private void saveHttp(String requestId) {
-		RequestDetailsState details = stateService.getRequestDetails(requestId);
-		if (details == null) {
-			details = new RequestDetailsState();
-			details.requestId = requestId;
-		}
-		details.type = RequestType.HTTP;
+		RequestDetailsState details = requestDetailsForSave(requestId, RequestType.HTTP);
 		details.method = String.valueOf(httpMethodCombo.getSelectedItem());
 		details.payloadType = PayloadTypes.resolveValue(httpPayloadCombo.getSelectedItem());
 		details.url = httpUrlField.getText();
@@ -763,12 +743,7 @@ public final class RequestEditorPanel {
 	}
 
 	private void saveGrpc(String requestId) {
-		RequestDetailsState details = stateService.getRequestDetails(requestId);
-		if (details == null) {
-			details = new RequestDetailsState();
-			details.requestId = requestId;
-		}
-		details.type = RequestType.GRPC;
+		RequestDetailsState details = requestDetailsForSave(requestId, RequestType.GRPC);
 		details.target = grpcTargetField.getText();
 		details.service =
 			grpcServiceCombo.getSelectedItem() == null ? "" : String.valueOf(grpcServiceCombo.getSelectedItem());
@@ -778,6 +753,16 @@ public final class RequestEditorPanel {
 
 		RequestStatusState status = buildStatus(requestId);
 		stateService.saveRequestStatus(status);
+	}
+
+	private RequestDetailsState requestDetailsForSave(String requestId, RequestType type) {
+		RequestDetailsState details = stateService.getRequestDetails(requestId);
+		if (details == null) {
+			details = new RequestDetailsState();
+			details.requestId = requestId;
+		}
+		details.type = type;
+		return details;
 	}
 
 	private RequestStatusState buildStatus(String requestId) {
@@ -796,68 +781,78 @@ public final class RequestEditorPanel {
 		return status;
 	}
 
+	private record HttpExecutionContext(
+		String method,
+		String url,
+		List<HeaderEntryState> headers,
+		List<HeaderEntryState> params,
+		String body,
+		String before,
+		String after,
+		String payloadType,
+		List<FormEntryState> formData,
+		String binaryFilePath
+	) {
+	}
+
 	// ---- execution ----
 
 	public void executeHttp() {
-		if (activeNode == null || activeNode.requestType != RequestType.HTTP) {
+		HttpExecutionContext context = prepareHttpExecution();
+		if (context == null) {
 			return;
 		}
-		saveActive();
-		RequestDetailsState details = stateService.getRequestDetails(activeNode.id);
-		if (details == null || details.url == null || details.url.isBlank()) {
-			responseViewer.showLog("Missing URL.");
-			return;
-		}
-		String method = details.method == null ? "GET" : details.method;
-		RequestStatusState status = stateService.getRequestStatus(activeNode.id);
-		List<HeaderEntryState> headers = status != null ? status.requestHeaders : List.of();
-		List<HeaderEntryState> params = status != null ? status.requestParams : List.of();
-		String body = status != null ? status.requestBody : "";
-		List<FormEntryState> formData = status != null ? status.formData : List.of();
-		String binaryFilePath = status != null ? status.binaryFilePath : "";
-		String payloadType = details.payloadType == null ? "RAW" : details.payloadType;
-		String before = status != null ? status.beforeScript : "";
-		String after = status != null ? status.afterScript : "";
 
 		runInBackground(() -> {
 			ExecutionResult result = executionService.executeWithScripts(
-				method, details.url, headers, params, body, before, after, false, null, payloadType, formData,
-				binaryFilePath
+				context.method, context.url, context.headers, context.params, context.body, context.before,
+				context.after, false, null, context.payloadType, context.formData, context.binaryFilePath
 			);
 			responseViewer.updateResponse(result, false);
 		});
 	}
 
 	private void executeHttpDownload() {
-		if (activeNode == null || activeNode.requestType != RequestType.HTTP) {
+		HttpExecutionContext context = prepareHttpExecution();
+		if (context == null) {
 			return;
 		}
-		saveActive();
-		RequestDetailsState details = stateService.getRequestDetails(activeNode.id);
-		if (details == null || details.url == null || details.url.isBlank()) {
-			responseViewer.showLog("Missing URL.");
-			return;
-		}
-		String method = details.method == null ? "GET" : details.method;
-		RequestStatusState status = stateService.getRequestStatus(activeNode.id);
-		List<HeaderEntryState> headers = status != null ? status.requestHeaders : List.of();
-		List<HeaderEntryState> params = status != null ? status.requestParams : List.of();
-		String body = status != null ? status.requestBody : "";
-		List<FormEntryState> formData = status != null ? status.formData : List.of();
-		String binaryFilePath = status != null ? status.binaryFilePath : "";
-		String payloadType = details.payloadType == null ? "RAW" : details.payloadType;
-		String before = status != null ? status.beforeScript : "";
-		String after = status != null ? status.afterScript : "";
 
 		runInBackground(() -> {
 			DownloadResult result = executionService.executeWithScriptsDownload(
-				method, details.url, headers, params, body, before, after, payloadType, formData, binaryFilePath
+				context.method, context.url, context.headers, context.params, context.body, context.before,
+				context.after, context.payloadType, context.formData, context.binaryFilePath
 			);
 			responseViewer.updateResponse(result.result, false);
 			if (result.bodyBytes != null) {
 				invokeLater(() -> responseViewer.promptSaveDownload(result, root));
 			}
 		});
+	}
+
+	private HttpExecutionContext prepareHttpExecution() {
+		if (activeNode == null || activeNode.requestType != RequestType.HTTP) {
+			return null;
+		}
+		saveActive();
+		RequestDetailsState details = stateService.getRequestDetails(activeNode.id);
+		if (details == null || details.url == null || details.url.isBlank()) {
+			responseViewer.showLog("Missing URL.");
+			return null;
+		}
+		RequestStatusState status = stateService.getRequestStatus(activeNode.id);
+		return new HttpExecutionContext(
+			details.method == null ? "GET" : details.method,
+			details.url,
+			status != null ? status.requestHeaders : List.of(),
+			status != null ? status.requestParams : List.of(),
+			status != null ? status.requestBody : "",
+			status != null ? status.beforeScript : "",
+			status != null ? status.afterScript : "",
+			details.payloadType == null ? "RAW" : details.payloadType,
+			status != null ? status.formData : List.of(),
+			status != null ? status.binaryFilePath : ""
+		);
 	}
 
 	public void executeGrpc() {
@@ -955,8 +950,7 @@ public final class RequestEditorPanel {
 	}
 
 	private void startDebugCall() {
-		if (activeNode == null || activeNode.type != NodeType.REQUEST
-			|| activeNode.requestType == RequestType.CHAIN) {
+		if (!hasEditableRequest()) {
 			return;
 		}
 		saveActive();
@@ -996,22 +990,7 @@ public final class RequestEditorPanel {
 			saveActive();
 		});
 		formDataTableModel.addTableModelListener((TableModelEvent e) -> saveActive());
-		binaryFileField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-			@Override
-			public void insertUpdate(javax.swing.event.DocumentEvent e) {
-				saveActive();
-			}
-
-			@Override
-			public void removeUpdate(javax.swing.event.DocumentEvent e) {
-				saveActive();
-			}
-
-			@Override
-			public void changedUpdate(javax.swing.event.DocumentEvent e) {
-				saveActive();
-			}
-		});
+		binaryFileField.getDocument().addDocumentListener(new AutoSaveListener());
 		httpMethodCombo.addActionListener(e -> saveActive());
 		httpPayloadCombo.addActionListener(e -> {
 			switchPayloadType();
@@ -1122,14 +1101,14 @@ public final class RequestEditorPanel {
 	// ---- body generation ----
 
 	private void generateBodyFromClass() {
-		if (activeNode == null || activeNode.type != NodeType.REQUEST || activeNode.requestType == RequestType.CHAIN) {
+		if (!hasEditableRequest()) {
 			return;
 		}
 		bodyGenerator.generateFromClass();
 	}
 
 	private void generateBodyFromProto() {
-		if (activeNode == null || activeNode.type != NodeType.REQUEST || activeNode.requestType == RequestType.CHAIN) {
+		if (!hasEditableRequest()) {
 			return;
 		}
 		bodyGenerator.generateFromProto();
@@ -1138,58 +1117,52 @@ public final class RequestEditorPanel {
 	// ---- open in window ----
 
 	private void openRequestWindow() {
-		if (activeNode == null || activeNode.type != NodeType.REQUEST || activeNode.requestType == RequestType.CHAIN) {
+		if (!hasEditableRequest()) {
 			return;
 		}
-		JDialog dialog = new JDialog();
-		dialog.setTitle("Request Editor - " + activeNode.name);
 		JTabbedPane tabs = new JTabbedPane();
 
 		EditorTextField bodyField = new JsonBodyEditorField(project, requestBodyArea.getDocument());
-		EditorTextField beforeField =
-			new EditorTextField(beforeScriptArea.getDocument(), project, scriptFileType, false, false);
-		beforeField.setOneLineMode(false);
-		EditorTextField afterField =
-			new EditorTextField(afterScriptArea.getDocument(), project, scriptFileType, false, false);
-		afterField.setOneLineMode(false);
+		EditorTextField beforeField = createScriptMirrorEditor(beforeScriptArea);
+		EditorTextField afterField = createScriptMirrorEditor(afterScriptArea);
 
 		tabs.add("Body", new JBScrollPane(bodyField));
 		tabs.add("Before Request", new JBScrollPane(beforeField));
 		tabs.add("After Request", new JBScrollPane(afterField));
 
-		dialog.getContentPane().add(tabs);
-		dialog.setSize(900, 700);
-		dialog.setLocationRelativeTo(root);
-		dialog.setModal(false);
-		dialog.setVisible(true);
+		showEditorDialog("Request Editor - " + activeNode.name, tabs);
 	}
 
 	private void openBeforeRequestWindow() {
-		if (activeNode == null || activeNode.type != NodeType.REQUEST || activeNode.requestType == RequestType.CHAIN) {
+		if (!hasEditableRequest()) {
 			return;
 		}
-		JDialog dialog = new JDialog();
-		dialog.setTitle("Before Request - " + activeNode.name);
-		EditorTextField beforeField =
-			new EditorTextField(beforeScriptArea.getDocument(), project, scriptFileType, false, false);
-		beforeField.setOneLineMode(false);
-		dialog.getContentPane().add(new JBScrollPane(beforeField));
-		dialog.setSize(900, 700);
-		dialog.setLocationRelativeTo(root);
-		dialog.setModal(false);
-		dialog.setVisible(true);
+		showEditorDialog(
+			"Before Request - " + activeNode.name,
+			new JBScrollPane(createScriptMirrorEditor(beforeScriptArea))
+		);
 	}
 
 	private void openAfterRequestWindow() {
-		if (activeNode == null || activeNode.type != NodeType.REQUEST || activeNode.requestType == RequestType.CHAIN) {
+		if (!hasEditableRequest()) {
 			return;
 		}
+		showEditorDialog(
+			"After Request - " + activeNode.name,
+			new JBScrollPane(createScriptMirrorEditor(afterScriptArea))
+		);
+	}
+
+	private EditorTextField createScriptMirrorEditor(EditorTextField source) {
+		EditorTextField editor = new EditorTextField(source.getDocument(), project, scriptFileType, false, false);
+		editor.setOneLineMode(false);
+		return editor;
+	}
+
+	private void showEditorDialog(String title, JComponent content) {
 		JDialog dialog = new JDialog();
-		dialog.setTitle("After Request - " + activeNode.name);
-		EditorTextField afterField =
-			new EditorTextField(afterScriptArea.getDocument(), project, scriptFileType, false, false);
-		afterField.setOneLineMode(false);
-		dialog.getContentPane().add(new JBScrollPane(afterField));
+		dialog.setTitle(title);
+		dialog.getContentPane().add(content);
 		dialog.setSize(900, 700);
 		dialog.setLocationRelativeTo(root);
 		dialog.setModal(false);
@@ -1197,7 +1170,7 @@ public final class RequestEditorPanel {
 	}
 
 	private void openResponseWindow() {
-		if (activeNode == null || activeNode.type != NodeType.REQUEST || activeNode.requestType == RequestType.CHAIN) {
+		if (!hasEditableRequest()) {
 			return;
 		}
 		responseViewer.openInWindow("Response Viewer - " + activeNode.name, root);
@@ -1211,6 +1184,10 @@ public final class RequestEditorPanel {
 
 	private void invokeLater(Runnable runnable) {
 		ApplicationManager.getApplication().invokeLater(runnable, ModalityState.any());
+	}
+
+	private boolean hasEditableRequest() {
+		return activeNode != null && activeNode.type == NodeType.REQUEST && activeNode.requestType != RequestType.CHAIN;
 	}
 
 	private FileType resolveScriptFileType() {
