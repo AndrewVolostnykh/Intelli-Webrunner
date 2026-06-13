@@ -30,6 +30,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         state.requestStatuses = loaded.requestStatuses == null ? new ArrayList<>() : new ArrayList<>(loaded.requestStatuses);
         state.chainStates = loaded.chainStates == null ? new ArrayList<>() : new ArrayList<>(loaded.chainStates);
         state.headerPresets = loaded.headerPresets == null ? new ArrayList<>() : cloneHeaderPresets(loaded.headerPresets);
+        state.globalContext = cloneGlobalContext(loaded.globalContext);
     }
 
     public List<NodeState> getNodes() {
@@ -43,6 +44,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         snapshot.requestStatuses = cloneStatuses(state.requestStatuses);
         snapshot.chainStates = cloneChains(state.chainStates);
         snapshot.headerPresets = cloneHeaderPresets(state.headerPresets);
+        snapshot.globalContext = cloneGlobalContext(state.globalContext);
         return snapshot;
     }
 
@@ -55,6 +57,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         state.requestStatuses = incoming.requestStatuses == null ? new ArrayList<>() : cloneStatuses(incoming.requestStatuses);
         state.chainStates = incoming.chainStates == null ? new ArrayList<>() : cloneChains(incoming.chainStates);
         state.headerPresets = incoming.headerPresets == null ? new ArrayList<>() : cloneHeaderPresets(incoming.headerPresets);
+        state.globalContext = cloneGlobalContext(incoming.globalContext);
         normalizeOrders();
     }
 
@@ -67,6 +70,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         List<RequestStatusState> incomingStatuses = cloneStatuses(incoming.requestStatuses);
         List<ChainState> incomingChains = cloneChains(incoming.chainStates);
         List<HeaderPresetState> incomingPresets = cloneHeaderPresets(incoming.headerPresets);
+        GlobalContextState incomingGlobalContext = cloneGlobalContext(incoming.globalContext);
 
         Map<String, String> idMap = new HashMap<>();
         Set<String> existingIds = new HashSet<>();
@@ -147,6 +151,9 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         if (!incomingPresets.isEmpty()) {
             state.headerPresets = incomingPresets;
         }
+        if (!incomingGlobalContext.variables.isEmpty() || !safe(incomingGlobalContext.script).isBlank()) {
+            state.globalContext = incomingGlobalContext;
+        }
         normalizeOrders();
     }
 
@@ -156,6 +163,42 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
 
     public void saveHeaderPresets(List<HeaderPresetState> presets) {
         state.headerPresets = presets == null ? new ArrayList<>() : cloneHeaderPresets(presets);
+    }
+
+    public GlobalContextState getGlobalContext() {
+        return cloneGlobalContext(state.globalContext);
+    }
+
+    public void saveGlobalContext(GlobalContextState globalContext) {
+        state.globalContext = cloneGlobalContext(globalContext);
+    }
+
+    public void saveGlobalContextVariables(Map<String, Object> values) {
+        GlobalContextState updated = cloneGlobalContext(state.globalContext);
+        Map<String, HeaderEntryState> enabledByName = new LinkedHashMap<>();
+        for (HeaderEntryState variable : updated.variables) {
+            if (variable == null || variable.name == null || variable.name.isBlank() || !variable.enabled) {
+                continue;
+            }
+            enabledByName.put(variable.name, variable);
+        }
+        for (Map.Entry<String, Object> entry : values.entrySet()) {
+            String name = entry.getKey();
+            if (name == null || name.isBlank()) {
+                continue;
+            }
+            HeaderEntryState variable = enabledByName.get(name);
+            if (variable == null) {
+                variable = new HeaderEntryState();
+                variable.id = UUID.randomUUID().toString();
+                variable.name = name;
+                variable.enabled = true;
+                updated.variables.add(variable);
+                enabledByName.put(name, variable);
+            }
+            variable.value = stringifyGlobalContextValue(entry.getValue());
+        }
+        state.globalContext = updated;
     }
 
     public NodeState createFolder(String name, String parentId) {
@@ -403,6 +446,30 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             copy.add(clone);
         }
         return copy;
+    }
+
+    private GlobalContextState cloneGlobalContext(GlobalContextState globalContext) {
+        GlobalContextState clone = new GlobalContextState();
+        if (globalContext == null) {
+            return clone;
+        }
+        clone.variables = cloneHeaders(globalContext.variables == null ? List.of() : globalContext.variables);
+        clone.script = safe(globalContext.script);
+        return clone;
+    }
+
+    private String stringifyGlobalContextValue(Object value) {
+        if (value == null) {
+            return "";
+        }
+        if (value instanceof Number || value instanceof Boolean || value instanceof CharSequence) {
+            return String.valueOf(value);
+        }
+        return String.valueOf(value);
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value;
     }
 
     private List<RequestDetailsState> cloneDetails(List<RequestDetailsState> detailsList) {

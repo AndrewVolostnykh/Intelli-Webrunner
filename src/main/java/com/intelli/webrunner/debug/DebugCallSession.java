@@ -4,6 +4,7 @@ import com.intelli.webrunner.execution.HttpExecutionResponse;
 import com.intelli.webrunner.execution.HttpExecutor;
 import com.intelli.webrunner.grpc.GrpcExecutionResponse;
 import com.intelli.webrunner.grpc.GrpcExecutor;
+import com.intelli.webrunner.script.GlobalContextRuntime;
 import com.intelli.webrunner.script.ScriptContext;
 import com.intelli.webrunner.script.ScriptHelpers;
 import com.intelli.webrunner.script.ScriptLogger;
@@ -61,6 +62,7 @@ public final class DebugCallSession {
 	private final TemplateEngine templateEngine;
 	private final HttpExecutor httpExecutor;
 	private final GrpcExecutor grpcExecutor;
+	private final GlobalContextRuntime globalContextRuntime;
 
 	private final String requestId;
 	private final RequestType requestType;
@@ -79,6 +81,7 @@ public final class DebugCallSession {
 	private Future<?> pendingTask;
 
 	private VarsStore vars;
+	private VarsStore globalContext;
 	private ScriptHelpers helpers;
 	private ScriptLogger logger;
 	private List<String> logs;
@@ -114,6 +117,7 @@ public final class DebugCallSession {
 		this.templateEngine = templateEngine;
 		this.httpExecutor = httpExecutor;
 		this.grpcExecutor = grpcExecutor;
+		this.globalContextRuntime = new GlobalContextRuntime(stateService, scriptRuntime);
 		this.requestId = requestId;
 		this.requestType = requestType;
 		this.details = stateService.getRequestDetails(requestId);
@@ -275,8 +279,9 @@ public final class DebugCallSession {
 		try {
 			scriptRuntime.runScript(
 				script,
-				new ScriptContext(vars, logger, helpers, contextRequest, rawRequest, response)
+				new ScriptContext(vars, logger, helpers, contextRequest, rawRequest, response, globalContext)
 			);
+			globalContextRuntime.persist(globalContext);
 		} catch (Exception error) {
 			logs.add("Inline script error: " + error.getMessage());
 		}
@@ -332,6 +337,12 @@ public final class DebugCallSession {
 		logger = message -> logs.add(message);
 		helpers = new ScriptHelpers(logger);
 		vars = new VarsStore();
+		try {
+			globalContext = globalContextRuntime.loadAndRun(logger);
+		} catch (Exception error) {
+			logs.add("Global context error: " + error.getMessage());
+			globalContext = new VarsStore();
+		}
 		rawRequest = new ScriptRequest(body, StateCopyUtils.cloneHeaders(headers), StateCopyUtils.cloneHeaders(params));
 		rawRequest.setFormData(StateCopyUtils.cloneFormData(formData));
 		rawRequest.setBinaryFilePath(binaryFilePath);
@@ -347,7 +358,7 @@ public final class DebugCallSession {
 			try {
 				scriptRuntime.runScript(
 					before,
-					new ScriptContext(vars, logger, helpers, beforeRequest, rawRequest, null)
+					new ScriptContext(vars, logger, helpers, beforeRequest, rawRequest, null, globalContext)
 				);
 			} catch (Exception error) {
 				logs.add("Before request error: " + error.getMessage());
@@ -357,7 +368,7 @@ public final class DebugCallSession {
 		beforeLogs = logs.isEmpty() ? List.of() : new ArrayList<>(logs);
 
 		if (!beforeFailed) {
-			Map<String, Object> varsSnapshot = vars.entries();
+			Map<String, Object> varsSnapshot = globalContextRuntime.mergeForTemplates(globalContext, vars);
 			templatedBody = templateEngine.applyToBody(beforeRequest.getBody(), varsSnapshot);
 			templatedHeaders = templateEngine.applyToHeaders(beforeRequest.getHeaders(), varsSnapshot);
 			templatedParams = templateEngine.applyToParams(beforeRequest.getParams(), varsSnapshot);
@@ -384,6 +395,7 @@ public final class DebugCallSession {
 			currentRequest.setFormData(StateCopyUtils.cloneFormData(beforeRequest.getFormData()));
 			currentRequest.setBinaryFilePath(beforeRequest.getBinaryFilePath());
 		}
+		globalContextRuntime.persist(globalContext);
 
 		if (requestType == RequestType.HTTP) {
 			String method = details == null || details.method == null ? "GET" : details.method;
@@ -491,11 +503,12 @@ public final class DebugCallSession {
 				Object response = requestType == RequestType.HTTP ? httpResponse : grpcResponse;
 				scriptRuntime.runScript(
 					after,
-					new ScriptContext(vars, logger, helpers, afterRequest, rawRequest, response)
+					new ScriptContext(vars, logger, helpers, afterRequest, rawRequest, response, globalContext)
 				);
 			} catch (Exception error) {
 				logs.add("After request error: " + error.getMessage());
 			}
+			globalContextRuntime.persist(globalContext);
 			afterLogs = logs.size() == logStart ? List.of() : new ArrayList<>(logs.subList(logStart, logs.size()));
 			lines.addAll(formatLogs("After request logs", afterLogs));
 		}

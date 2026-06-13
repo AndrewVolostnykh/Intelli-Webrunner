@@ -5,7 +5,6 @@ import com.intelli.webrunner.debug.DebugCallSession;
 import com.intelli.webrunner.execution.DownloadResult;
 import com.intelli.webrunner.execution.ExecutionResult;
 import com.intelli.webrunner.execution.HttpExecutor;
-import com.intelli.webrunner.execution.HttpPayloadType;
 import com.intelli.webrunner.execution.RequestExecutionService;
 import com.intelli.webrunner.grpc.GrpcExecutor;
 import com.intelli.webrunner.grpc.GrpcServiceInfo;
@@ -19,7 +18,6 @@ import com.intelli.webrunner.state.NodeType;
 import com.intelli.webrunner.state.RequestDetailsState;
 import com.intelli.webrunner.state.RequestStatusState;
 import com.intelli.webrunner.state.RequestType;
-import com.intelli.webrunner.util.JsonUtils;
 import com.intelli.webrunner.util.PayloadTypes;
 import com.intelli.webrunner.util.TemplateEngine;
 import com.intelli.webrunner.util.UrlParamUtils;
@@ -39,7 +37,6 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiFileFactory;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.ui.EditorTextField;
-import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.components.JBTextField;
 
@@ -49,12 +46,12 @@ import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
-import javax.swing.JMenuItem;
-import javax.swing.JPopupMenu;
 import javax.swing.event.TableModelEvent;
 import javax.swing.table.TableCellEditor;
 import javax.swing.table.TableColumn;
@@ -113,6 +110,7 @@ public final class RequestEditorPanel {
 	private final JButton httpSendButton = new JButton(AllIcons.Actions.Execute);
 	private final JButton httpSendDownloadButton = new JButton(AllIcons.Actions.Download);
 	private final JButton httpDebugButton = new JButton(AllIcons.Actions.StartDebugger);
+	private final JButton httpGlobalContextButton = new JButton(AllIcons.Nodes.Variable);
 
 	private final JBTextField grpcTargetField = new JBTextField();
 	private final JComboBox<String> grpcServiceCombo = new JComboBox<>();
@@ -282,6 +280,7 @@ public final class RequestEditorPanel {
 		configureIconButton(httpSendButton, "Send");
 		configureIconButton(httpSendDownloadButton, "Send and Download");
 		configureIconButton(httpDebugButton, "Debug Call");
+		configureIconButton(httpGlobalContextButton, "Global Context");
 		topBar.add(httpMethodCombo);
 		topBar.add(httpPayloadCombo);
 		topBar.add(new JLabel("URL"));
@@ -289,10 +288,12 @@ public final class RequestEditorPanel {
 		topBar.add(httpSendButton);
 		topBar.add(httpSendDownloadButton);
 		topBar.add(httpDebugButton);
+		topBar.add(httpGlobalContextButton);
 		topBar.add(createRequestMenuButton());
 		httpSendButton.addActionListener(e -> executeHttp());
 		httpSendDownloadButton.addActionListener(e -> executeHttpDownload());
 		httpDebugButton.addActionListener(e -> startDebugCall());
+		httpGlobalContextButton.addActionListener(e -> GlobalContextDialog.show(root, project, stateService));
 		return topBar;
 	}
 
@@ -379,28 +380,20 @@ public final class RequestEditorPanel {
 		JPopupMenu menu = new JPopupMenu();
 		JMenuItem openRequestItem = new JMenuItem("Open Request");
 		JMenuItem openResponseItem = new JMenuItem("Open Response");
-		JMenuItem openBeforeItem = new JMenuItem("Open Before Request");
-		JMenuItem openAfterItem = new JMenuItem("Open After Request");
 		JMenuItem classBodyItem = new JMenuItem("Class body");
 		JMenuItem protoBodyItem = new JMenuItem("Proto body");
 		openRequestItem.addActionListener(e -> openRequestWindow());
 		openResponseItem.addActionListener(e -> openResponseWindow());
-		openBeforeItem.addActionListener(e -> openBeforeRequestWindow());
-		openAfterItem.addActionListener(e -> openAfterRequestWindow());
 		classBodyItem.addActionListener(e -> generateBodyFromClass());
 		protoBodyItem.addActionListener(e -> generateBodyFromProto());
 		boolean enabled =
 			activeNode != null && activeNode.type == NodeType.REQUEST && activeNode.requestType != RequestType.CHAIN;
 		openRequestItem.setEnabled(enabled);
 		openResponseItem.setEnabled(enabled);
-		openBeforeItem.setEnabled(enabled);
-		openAfterItem.setEnabled(enabled);
 		classBodyItem.setEnabled(enabled);
 		protoBodyItem.setEnabled(enabled);
 		menu.add(openRequestItem);
 		menu.add(openResponseItem);
-		menu.add(openBeforeItem);
-		menu.add(openAfterItem);
 		menu.addSeparator();
 		menu.add(classBodyItem);
 		menu.add(protoBodyItem);

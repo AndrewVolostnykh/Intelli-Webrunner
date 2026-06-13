@@ -2,6 +2,7 @@ package com.intelli.webrunner.execution;
 
 import com.intelli.webrunner.grpc.GrpcExecutionResponse;
 import com.intelli.webrunner.grpc.GrpcExecutor;
+import com.intelli.webrunner.script.GlobalContextRuntime;
 import com.intelli.webrunner.script.ScriptContext;
 import com.intelli.webrunner.script.ScriptHelpers;
 import com.intelli.webrunner.script.ScriptLogger;
@@ -9,6 +10,7 @@ import com.intelli.webrunner.script.ScriptRequest;
 import com.intelli.webrunner.script.ScriptRuntime;
 import com.intelli.webrunner.script.VarsStore;
 import com.intelli.webrunner.state.FormEntryState;
+import com.intelli.webrunner.state.GlobalWebrunnerStateService;
 import com.intelli.webrunner.state.HeaderEntryState;
 import com.intelli.webrunner.state.RequestDetailsState;
 import com.intelli.webrunner.util.JsonUtils;
@@ -23,8 +25,8 @@ import java.util.Map;
 
 /**
  * Runs a request through the full pipeline: before-script, templating, transport (HTTP or gRPC),
- * then after-script. Contains no Swing, project, or persistence dependencies, so it can be reused
- * by the request editor, the chain runner, and the step debugger.
+ * then after-script. Contains no Swing or project dependencies, so it can be reused by the request
+ * editor and the chain runner while still resolving the shared persisted global context.
  */
 public final class RequestExecutionService {
 
@@ -32,17 +34,20 @@ public final class RequestExecutionService {
 	private final ScriptRuntime scriptRuntime;
 	private final HttpExecutor httpExecutor;
 	private final GrpcExecutor grpcExecutor;
+	private final GlobalContextRuntime globalContextRuntime;
 
 	public RequestExecutionService(
 		TemplateEngine templateEngine,
 		ScriptRuntime scriptRuntime,
 		HttpExecutor httpExecutor,
-		GrpcExecutor grpcExecutor
+		GrpcExecutor grpcExecutor,
+		GlobalWebrunnerStateService stateService
 	) {
 		this.templateEngine = templateEngine;
 		this.scriptRuntime = scriptRuntime;
 		this.httpExecutor = httpExecutor;
 		this.grpcExecutor = grpcExecutor;
+		this.globalContextRuntime = new GlobalContextRuntime(stateService, scriptRuntime);
 	}
 
 	public ExecutionResult executeWithScripts(
@@ -63,6 +68,7 @@ public final class RequestExecutionService {
 		List<String> logs = new ArrayList<>();
 		ScriptLogger logger = message -> logs.add(message);
 		ScriptHelpers helpers = new ScriptHelpers(logger);
+		VarsStore globalContext = loadGlobalContext(logger, logs);
 		ScriptRequest rawRequest = new ScriptRequest(body, StateCopyUtils.cloneHeaders(headers), StateCopyUtils.cloneHeaders(params));
 		rawRequest.setFormData(StateCopyUtils.cloneFormData(formData));
 		rawRequest.setBinaryFilePath(binaryFilePath == null ? "" : binaryFilePath);
@@ -73,14 +79,15 @@ public final class RequestExecutionService {
 		try {
 			scriptRuntime.runScript(
 				before,
-				new ScriptContext(vars, logger, helpers, scriptRequest, rawRequest, null)
+				new ScriptContext(vars, logger, helpers, scriptRequest, rawRequest, null, globalContext)
 			);
 		} catch (Exception error) {
 			logs.add("Before request error: " + error.getMessage());
+			globalContextRuntime.persist(globalContext);
 			return ExecutionResult.failure(logs);
 		}
 
-		Map<String, Object> varsSnapshot = vars.entries();
+		Map<String, Object> varsSnapshot = globalContextRuntime.mergeForTemplates(globalContext, vars);
 		String templatedBody = templateEngine.applyToBody(scriptRequest.getBody(), varsSnapshot);
 		List<HeaderEntryState> templatedHeaders =
 			templateEngine.applyToHeaders(scriptRequest.getHeaders(), varsSnapshot);
@@ -123,12 +130,14 @@ public final class RequestExecutionService {
 						helpers,
 						afterRequest,
 						rawRequest,
-						response
+						response,
+						globalContext
 					)
 				);
 			} catch (Exception error) {
 				logs.add("After request error: " + error.getMessage());
 			}
+			globalContextRuntime.persist(globalContext);
 			String responseHeaders = JsonUtils.toJson(response.headers);
 			return new ExecutionResult(
 				response.statusCode,
@@ -139,6 +148,7 @@ public final class RequestExecutionService {
 			);
 		} catch (Exception error) {
 			logs.add("Request failed: " + error.getMessage());
+			globalContextRuntime.persist(globalContext);
 			return ExecutionResult.failure(logs);
 		}
 	}
@@ -159,6 +169,7 @@ public final class RequestExecutionService {
 		List<String> logs = new ArrayList<>();
 		ScriptLogger logger = logs::add;
 		ScriptHelpers helpers = new ScriptHelpers(logger);
+		VarsStore globalContext = loadGlobalContext(logger, logs);
 		ScriptRequest rawRequest = new ScriptRequest(body, StateCopyUtils.cloneHeaders(headers), StateCopyUtils.cloneHeaders(params));
 		rawRequest.setFormData(StateCopyUtils.cloneFormData(formData));
 		rawRequest.setBinaryFilePath(binaryFilePath == null ? "" : binaryFilePath);
@@ -169,14 +180,15 @@ public final class RequestExecutionService {
 		try {
 			scriptRuntime.runScript(
 				before,
-				new ScriptContext(vars, logger, helpers, scriptRequest, rawRequest, null)
+				new ScriptContext(vars, logger, helpers, scriptRequest, rawRequest, null, globalContext)
 			);
 		} catch (Exception error) {
 			logs.add("Before request error: " + error.getMessage());
+			globalContextRuntime.persist(globalContext);
 			return DownloadResult.failure(logs);
 		}
 
-		Map<String, Object> varsSnapshot = vars.entries();
+		Map<String, Object> varsSnapshot = globalContextRuntime.mergeForTemplates(globalContext, vars);
 		String templatedBody = templateEngine.applyToBody(scriptRequest.getBody(), varsSnapshot);
 		List<HeaderEntryState> templatedHeaders =
 			templateEngine.applyToHeaders(scriptRequest.getHeaders(), varsSnapshot);
@@ -219,12 +231,14 @@ public final class RequestExecutionService {
 						helpers,
 						afterRequest,
 						rawRequest,
-						response
+						response,
+						globalContext
 					)
 				);
 			} catch (Exception error) {
 				logs.add("After request error: " + error.getMessage());
 			}
+			globalContextRuntime.persist(globalContext);
 			String responseHeaders = JsonUtils.toJson(response.headers);
 			ExecutionResult result = new ExecutionResult(
 				response.statusCode,
@@ -236,6 +250,7 @@ public final class RequestExecutionService {
 			return new DownloadResult(result, response.bodyBytes, response.headers);
 		} catch (Exception error) {
 			logs.add("Request failed: " + error.getMessage());
+			globalContextRuntime.persist(globalContext);
 			return DownloadResult.failure(logs);
 		}
 	}
@@ -253,20 +268,22 @@ public final class RequestExecutionService {
 		List<String> logs = new ArrayList<>();
 		ScriptLogger logger = message -> logs.add(message);
 		ScriptHelpers helpers = new ScriptHelpers(logger);
+		VarsStore globalContext = loadGlobalContext(logger, logs);
 		ScriptRequest rawRequest = new ScriptRequest(body, StateCopyUtils.cloneHeaders(headers), StateCopyUtils.cloneHeaders(params));
 		ScriptRequest scriptRequest = new ScriptRequest(body, StateCopyUtils.cloneHeaders(headers), StateCopyUtils.cloneHeaders(params));
 
 		try {
 			scriptRuntime.runScript(
 				before,
-				new ScriptContext(vars, logger, helpers, scriptRequest, rawRequest, null)
+				new ScriptContext(vars, logger, helpers, scriptRequest, rawRequest, null, globalContext)
 			);
 		} catch (Exception error) {
 			logs.add("Before request error: " + error.getMessage());
+			globalContextRuntime.persist(globalContext);
 			return ExecutionResult.failure(logs);
 		}
 
-		Map<String, Object> varsSnapshot = vars.entries();
+		Map<String, Object> varsSnapshot = globalContextRuntime.mergeForTemplates(globalContext, vars);
 		String templatedBody = templateEngine.applyToBody(scriptRequest.getBody(), varsSnapshot);
 		List<HeaderEntryState> templatedHeaders =
 			templateEngine.applyToHeaders(scriptRequest.getHeaders(), varsSnapshot);
@@ -292,12 +309,14 @@ public final class RequestExecutionService {
 							templatedParams
 						),
 						rawRequest,
-						response
+						response,
+						globalContext
 					)
 				);
 			} catch (Exception error) {
 				logs.add("After request error: " + error.getMessage());
 			}
+			globalContextRuntime.persist(globalContext);
 			String responseHeaders = JsonUtils.toJson(response.headers);
 			return new ExecutionResult(
 				response.statusCode,
@@ -308,7 +327,20 @@ public final class RequestExecutionService {
 			);
 		} catch (Exception error) {
 			logs.add("gRPC request failed: " + error.getMessage());
+			globalContextRuntime.persist(globalContext);
 			return ExecutionResult.failure(logs);
+		}
+	}
+
+	private VarsStore loadGlobalContext(
+		ScriptLogger logger,
+		List<String> logs
+	) {
+		try {
+			return globalContextRuntime.loadAndRun(logger);
+		} catch (Exception error) {
+			logs.add("Global context error: " + error.getMessage());
+			return new VarsStore();
 		}
 	}
 }

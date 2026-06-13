@@ -30,6 +30,7 @@ public class ScriptRuntime {
             Scriptable rawRequestObj = buildScriptRequest(context.rawRequest, cx, scope);
             Scriptable responseObj = buildScriptResponse(context, cx, scope);
             Scriptable varsObj = buildVarsObject(context, cx, scope);
+            Scriptable globalContextObj = buildVarsObject(context.globalContext, cx, scope);
 
             BaseFunction logFn = new BaseFunction() {
                 @Override
@@ -116,6 +117,7 @@ public class ScriptRuntime {
 
             Scriptable contextObj = cx.newObject(scope);
             ScriptableObject.putProperty(contextObj, "vars", varsObj);
+            ScriptableObject.putProperty(contextObj, "globalContext", globalContextObj);
             ScriptableObject.putProperty(contextObj, "log", logFn);
             ScriptableObject.putProperty(contextObj, "helpers", Context.javaToJS(context.helpers, scope));
             ScriptableObject.putProperty(contextObj, "request", requestObj);
@@ -125,6 +127,7 @@ public class ScriptRuntime {
             ScriptableObject.putProperty(contextObj, "jsonify", jsonifyFn);
 
             ScriptableObject.putProperty(scope, "vars", varsObj);
+            ScriptableObject.putProperty(scope, "globalContext", globalContextObj);
             ScriptableObject.putProperty(scope, "request", requestObj);
             ScriptableObject.putProperty(scope, "rawRequest", rawRequestObj);
             ScriptableObject.putProperty(scope, "response", responseObj);
@@ -192,12 +195,6 @@ public class ScriptRuntime {
                 Object parsed = mapper.readValue(trimmed, Object.class);
                 return toNativeJs(parsed, cx, scope);
             } catch (Exception ignored) {
-                try {
-                    String normalized = normalizeTemplateJson(trimmed);
-                    Object parsed = mapper.readValue(normalized, Object.class);
-                    return toNativeJs(parsed, cx, scope);
-                } catch (Exception ignoredAgain) {
-                }
             }
         }
         return body;
@@ -276,6 +273,10 @@ public class ScriptRuntime {
     }
 
     private Scriptable buildVarsObject(ScriptContext context, Context cx, Scriptable scope) {
+        return buildVarsObject(context.vars, cx, scope);
+    }
+
+    private Scriptable buildVarsObject(VarsStore vars, Context cx, Scriptable scope) {
         Scriptable varsObj = cx.newObject(scope);
 
         BaseFunction getFn = new BaseFunction() {
@@ -285,7 +286,7 @@ public class ScriptRuntime {
                     return Undefined.instance;
                 }
                 String key = String.valueOf(args[0]);
-                Object value = context.vars.get(key);
+                Object value = vars.get(key);
                 return toNativeJs(value, cx, scope);
             }
         };
@@ -300,7 +301,7 @@ public class ScriptRuntime {
                 Object value = args.length > 1 ? args[1] : null;
                 Object javaValue = Context.jsToJava(value, Object.class);
                 Object normalized = normalizeScriptValue(value, javaValue);
-                context.vars.add(key, normalized);
+                vars.add(key, normalized);
                 return null;
             }
         };
@@ -308,7 +309,7 @@ public class ScriptRuntime {
         BaseFunction allFn = new BaseFunction() {
             @Override
             public Object call(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
-                return toNativeJs(context.vars.entries(), cx, scope);
+                return toNativeJs(vars.entries(), cx, scope);
             }
         };
 
@@ -451,12 +452,6 @@ public class ScriptRuntime {
 
     private boolean looksLikeJson(String value) {
         return value.startsWith("{") || value.startsWith("[");
-    }
-
-    private String normalizeTemplateJson(String value) {
-        String normalized = value.replaceAll("\\{\\{\\s*[\\w.-]+\\s*}}", "null");
-        normalized = normalized.replaceAll("(\"(?:[^\"\\\\]|\\\\.)*\"|\\btrue\\b|\\bfalse\\b|\\bnull\\b|-?\\d+(?:\\.\\d+)?)(\\s*)(\"[^\"]+\"\\s*:)", "$1,$2$3");
-        return normalized;
     }
 
     private Scriptable buildHeaderArray(List<HeaderEntryState> headers, Context cx, Scriptable scope) {

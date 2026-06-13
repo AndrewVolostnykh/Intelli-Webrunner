@@ -15,6 +15,8 @@ import java.util.regex.Pattern;
 
 public class TemplateEngine {
     private static final Pattern TEMPLATE = Pattern.compile("\\{\\{\\s*([\\w.-]+)\\s*}}");
+    private static final String BARE_TEMPLATE_PREFIX = "__WEBRUNNER_BARE_TEMPLATE_";
+    private static final String BARE_TEMPLATE_SUFFIX = "__";
     private final ObjectMapper mapper = new ObjectMapper();
 
     public String applyToBody(String body, Map<String, Object> vars) {
@@ -26,7 +28,13 @@ public class TemplateEngine {
             JsonNode replaced = replaceJsonNode(parsed, vars);
             return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(replaced);
         } catch (Exception ignored) {
-            return interpolate(body, vars);
+            try {
+                JsonNode parsed = mapper.readTree(quoteBareJsonTemplates(body));
+                JsonNode replaced = replaceJsonNode(parsed, vars);
+                return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(replaced);
+            } catch (Exception ignoredAgain) {
+                return interpolate(body, vars);
+            }
         }
     }
 
@@ -66,7 +74,7 @@ public class TemplateEngine {
         StringBuffer buffer = new StringBuffer();
         while (matcher.find()) {
             String key = matcher.group(1);
-            Object replacement = vars.get(key);
+            Object replacement = vars == null ? null : vars.get(key);
             matcher.appendReplacement(buffer, replacement == null ? "" : Matcher.quoteReplacement(String.valueOf(replacement)));
         }
         matcher.appendTail(buffer);
@@ -76,10 +84,16 @@ public class TemplateEngine {
     private JsonNode replaceJsonNode(JsonNode node, Map<String, Object> vars) {
         if (node.isTextual()) {
             String value = node.asText();
+            String bareTemplateKey = bareTemplateKey(value);
+            if (bareTemplateKey != null) {
+                return vars != null && vars.containsKey(bareTemplateKey)
+                    ? mapper.valueToTree(vars.get(bareTemplateKey))
+                    : mapper.valueToTree(null);
+            }
             Matcher matcher = TEMPLATE.matcher(value);
             if (matcher.matches()) {
                 String key = matcher.group(1);
-                Object replacement = vars.get(key);
+                Object replacement = vars == null ? null : vars.get(key);
                 return replacement == null ? node : mapper.valueToTree(replacement);
             }
             return new TextNode(interpolate(value, vars));
@@ -95,5 +109,54 @@ public class TemplateEngine {
             return object;
         }
         return node;
+    }
+
+    private String quoteBareJsonTemplates(String value) {
+        StringBuilder result = new StringBuilder();
+        boolean inString = false;
+        boolean escaped = false;
+        int index = 0;
+        while (index < value.length()) {
+            char current = value.charAt(index);
+            if (inString) {
+                result.append(current);
+                if (escaped) {
+                    escaped = false;
+                } else if (current == '\\') {
+                    escaped = true;
+                } else if (current == '"') {
+                    inString = false;
+                }
+                index++;
+                continue;
+            }
+            if (current == '"') {
+                inString = true;
+                result.append(current);
+                index++;
+                continue;
+            }
+            Matcher matcher = TEMPLATE.matcher(value);
+            matcher.region(index, value.length());
+            if (matcher.lookingAt()) {
+                String marker = BARE_TEMPLATE_PREFIX + matcher.group(1) + BARE_TEMPLATE_SUFFIX;
+                result.append('"').append(marker).append('"');
+                index = matcher.end();
+                continue;
+            }
+            result.append(current);
+            index++;
+        }
+        return result.toString();
+    }
+
+    private String bareTemplateKey(String value) {
+        if (value == null || !value.startsWith(BARE_TEMPLATE_PREFIX) || !value.endsWith(BARE_TEMPLATE_SUFFIX)) {
+            return null;
+        }
+        return value.substring(
+            BARE_TEMPLATE_PREFIX.length(),
+            value.length() - BARE_TEMPLATE_SUFFIX.length()
+        );
     }
 }

@@ -9,4 +9,5 @@ public class WebrunnerState {
     public List<RequestStatusState> requestStatuses = new ArrayList<>();
     public List<ChainState> chainStates = new ArrayList<>();
     public List<HeaderPresetState> headerPresets = new ArrayList<>();
+    public GlobalContextState globalContext = new GlobalContextState();
 }
