@@ -381,7 +381,9 @@ public final class DebugCallSession {
 			if (requestType == RequestType.HTTP) {
 				String url = details == null || details.url == null ? "" : details.url;
 				String templatedUrlBase = templateEngine.applyToText(url, varsSnapshot);
-				templatedUrl = UrlParamUtils.applyQueryParams(templatedUrlBase, templatedParams);
+				templatedUrl = UrlParamUtils.applyDefaultProtocol(
+					UrlParamUtils.applyQueryParams(templatedUrlBase, templatedParams)
+				);
 			}
 			currentRequest = new ScriptRequest(templatedBody, templatedHeaders, templatedParams);
 			currentRequest.setFormData(StateCopyUtils.cloneFormData(templatedFormData));

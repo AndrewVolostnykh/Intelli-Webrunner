@@ -70,6 +70,20 @@ public final class UrlParamUtils {
 		return builder.append(fragment).toString();
 	}
 
+	public static String applyDefaultProtocol(String url) {
+		if (url == null) {
+			return "";
+		}
+		String trimmed = url.trim();
+		if (trimmed.isEmpty() || hasProtocol(trimmed)) {
+			return trimmed;
+		}
+		if (isLocalhost(trimmed)) {
+			return "http://" + trimmed;
+		}
+		return "https://" + trimmed;
+	}
+
 	public static String replaceQueryParams(
 		String url,
 		List<HeaderEntryState> params
@@ -227,5 +241,23 @@ public final class UrlParamUtils {
 			}
 		}
 		return null;
+	}
+
+	private static boolean hasProtocol(String url) {
+		return url.matches("^[A-Za-z][A-Za-z0-9+.-]*://.*");
+	}
+
+	private static boolean isLocalhost(String url) {
+		if (url.length() < "localhost".length()) {
+			return false;
+		}
+		if (!url.regionMatches(true, 0, "localhost", 0, "localhost".length())) {
+			return false;
+		}
+		if (url.length() == "localhost".length()) {
+			return true;
+		}
+		char next = url.charAt("localhost".length());
+		return next == ':' || next == '/' || next == '?' || next == '#';
 	}
 }

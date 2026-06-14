@@ -35,6 +35,7 @@ public final class ResponseViewerPanel {
 
 	private final JTabbedPane responseTabs = new JTabbedPane();
 	private final JBLabel responseStatusLabel = new JBLabel("");
+	private final JBLabel responseTimeLabel = new JBLabel("");
 	private final EditorTextField responseBodyArea;
 	private final EditorTextField responseHeadersArea;
 	private final JBTextArea responseLogsArea = new JBTextArea();
@@ -53,7 +54,11 @@ public final class ResponseViewerPanel {
 		responseTabs.add("Logs", new JBScrollPane(responseLogsArea));
 
 		responseStatusLabel.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
-		root.add(responseStatusLabel, BorderLayout.NORTH);
+		responseTimeLabel.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+		JPanel statusPanel = new JPanel(new BorderLayout());
+		statusPanel.add(responseStatusLabel, BorderLayout.WEST);
+		statusPanel.add(responseTimeLabel, BorderLayout.EAST);
+		root.add(statusPanel, BorderLayout.NORTH);
 		root.add(responseTabs, BorderLayout.CENTER);
 	}
 
@@ -91,6 +96,7 @@ public final class ResponseViewerPanel {
 		responseHeadersArea.setText(headers == null ? "" : headers);
 		responseLogsArea.setText(logs == null ? "" : logs);
 		responseStatusLabel.setText("");
+		responseTimeLabel.setText("");
 	}
 
 	public void showLog(String message) {
@@ -106,6 +112,13 @@ public final class ResponseViewerPanel {
 		responseLogsArea.setText(existing + "\n" + message);
 	}
 
+	public void clearStatus() {
+		invokeLater(() -> {
+			responseStatusLabel.setText("");
+			responseTimeLabel.setText("");
+		});
+	}
+
 	/** Applies an execution result to the UI on the EDT, then notifies the host to persist it. */
 	public void updateResponse(ExecutionResult result, boolean isGrpc) {
 		invokeLater(() -> {
@@ -113,6 +126,8 @@ public final class ResponseViewerPanel {
 			responseHeadersArea.setText(result.responseHeaders);
 			responseLogsArea.setText(result.logs);
 			responseStatusLabel.setForeground(result.statusCode >= 400 ? JBColor.RED : JBColor.GREEN);
+			responseTimeLabel.setForeground(responseStatusLabel.getForeground());
+			responseTimeLabel.setText(result.durationMillis >= 0 ? "Time: " + formatDuration(result.durationMillis) : "");
 			if (isGrpc) {
 				responseStatusLabel.setText("Status: " + result.statusCode + " " + result.statusMessage);
 			} else {
@@ -179,5 +194,14 @@ public final class ResponseViewerPanel {
 
 	private void invokeLater(Runnable runnable) {
 		ApplicationManager.getApplication().invokeLater(runnable, ModalityState.any());
+	}
+
+	private static String formatDuration(long durationMillis) {
+		if (durationMillis < 1000) {
+			return durationMillis + " ms";
+		}
+		long seconds = durationMillis / 1000;
+		long millis = durationMillis % 1000;
+		return seconds + "." + String.format("%03d", millis) + " s";
 	}
 }

@@ -796,6 +796,7 @@ public final class RequestEditorPanel {
 			return;
 		}
 
+		responseViewer.clearStatus();
 		runInBackground(() -> {
 			ExecutionResult result = executionService.executeWithScripts(
 				context.method, context.url, context.headers, context.params, context.body, context.before,
@@ -811,6 +812,7 @@ public final class RequestEditorPanel {
 			return;
 		}
 
+		responseViewer.clearStatus();
 		runInBackground(() -> {
 			DownloadResult result = executionService.executeWithScriptsDownload(
 				context.method, context.url, context.headers, context.params, context.body, context.before,
@@ -870,6 +872,7 @@ public final class RequestEditorPanel {
 		String before = status != null ? status.beforeScript : "";
 		String after = status != null ? status.afterScript : "";
 
+		responseViewer.clearStatus();
 		runInBackground(() -> {
 			ExecutionResult result =
 				executionService.executeGrpcWithScripts(details, headers, params, body, before, after, null);

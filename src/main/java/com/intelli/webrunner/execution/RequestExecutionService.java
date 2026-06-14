@@ -64,6 +64,7 @@ public final class RequestExecutionService {
 		List<FormEntryState> formData,
 		String binaryFilePath
 	) {
+		long startedAt = System.nanoTime();
 		VarsStore vars = sharedVars == null ? new VarsStore() : sharedVars;
 		List<String> logs = new ArrayList<>();
 		ScriptLogger logger = message -> logs.add(message);
@@ -84,7 +85,7 @@ public final class RequestExecutionService {
 		} catch (Exception error) {
 			logs.add("Before request error: " + error.getMessage());
 			globalContextRuntime.persist(globalContext);
-			return ExecutionResult.failure(logs);
+			return withDuration(ExecutionResult.failure(logs), startedAt);
 		}
 
 		Map<String, Object> varsSnapshot = globalContextRuntime.mergeForTemplates(globalContext, vars);
@@ -101,7 +102,9 @@ public final class RequestExecutionService {
 			varsSnapshot
 		);
 		String templatedUrlBase = templateEngine.applyToText(url, varsSnapshot);
-		String templatedUrl = UrlParamUtils.applyQueryParams(templatedUrlBase, templatedParams);
+		String templatedUrl = UrlParamUtils.applyDefaultProtocol(
+			UrlParamUtils.applyQueryParams(templatedUrlBase, templatedParams)
+		);
 
 		try {
 			HttpExecutionResponse response =
@@ -139,17 +142,17 @@ public final class RequestExecutionService {
 			}
 			globalContextRuntime.persist(globalContext);
 			String responseHeaders = JsonUtils.toJson(response.headers);
-			return new ExecutionResult(
+			return withDuration(new ExecutionResult(
 				response.statusCode,
 				"",
 				JsonUtils.prettyPrint(response.body),
 				responseHeaders,
 				String.join("\n", logs)
-			);
+			), startedAt);
 		} catch (Exception error) {
 			logs.add("Request failed: " + error.getMessage());
 			globalContextRuntime.persist(globalContext);
-			return ExecutionResult.failure(logs);
+			return withDuration(ExecutionResult.failure(logs), startedAt);
 		}
 	}
 
@@ -165,6 +168,7 @@ public final class RequestExecutionService {
 		List<FormEntryState> formData,
 		String binaryFilePath
 	) {
+		long startedAt = System.nanoTime();
 		VarsStore vars = new VarsStore();
 		List<String> logs = new ArrayList<>();
 		ScriptLogger logger = logs::add;
@@ -185,7 +189,7 @@ public final class RequestExecutionService {
 		} catch (Exception error) {
 			logs.add("Before request error: " + error.getMessage());
 			globalContextRuntime.persist(globalContext);
-			return DownloadResult.failure(logs);
+			return new DownloadResult(withDuration(ExecutionResult.failure(logs), startedAt), null, Map.of());
 		}
 
 		Map<String, Object> varsSnapshot = globalContextRuntime.mergeForTemplates(globalContext, vars);
@@ -202,7 +206,9 @@ public final class RequestExecutionService {
 			varsSnapshot
 		);
 		String templatedUrlBase = templateEngine.applyToText(url, varsSnapshot);
-		String templatedUrl = UrlParamUtils.applyQueryParams(templatedUrlBase, templatedParams);
+		String templatedUrl = UrlParamUtils.applyDefaultProtocol(
+			UrlParamUtils.applyQueryParams(templatedUrlBase, templatedParams)
+		);
 
 		try {
 			HttpExecutionResponse response =
@@ -240,18 +246,18 @@ public final class RequestExecutionService {
 			}
 			globalContextRuntime.persist(globalContext);
 			String responseHeaders = JsonUtils.toJson(response.headers);
-			ExecutionResult result = new ExecutionResult(
+			ExecutionResult result = withDuration(new ExecutionResult(
 				response.statusCode,
 				"",
 				JsonUtils.prettyPrint(response.body),
 				responseHeaders,
 				String.join("\n", logs)
-			);
+			), startedAt);
 			return new DownloadResult(result, response.bodyBytes, response.headers);
 		} catch (Exception error) {
 			logs.add("Request failed: " + error.getMessage());
 			globalContextRuntime.persist(globalContext);
-			return DownloadResult.failure(logs);
+			return new DownloadResult(withDuration(ExecutionResult.failure(logs), startedAt), null, Map.of());
 		}
 	}
 
@@ -264,6 +270,7 @@ public final class RequestExecutionService {
 		String after,
 		VarsStore sharedVars
 	) {
+		long startedAt = System.nanoTime();
 		VarsStore vars = sharedVars == null ? new VarsStore() : sharedVars;
 		List<String> logs = new ArrayList<>();
 		ScriptLogger logger = message -> logs.add(message);
@@ -280,7 +287,7 @@ public final class RequestExecutionService {
 		} catch (Exception error) {
 			logs.add("Before request error: " + error.getMessage());
 			globalContextRuntime.persist(globalContext);
-			return ExecutionResult.failure(logs);
+			return withDuration(ExecutionResult.failure(logs), startedAt);
 		}
 
 		Map<String, Object> varsSnapshot = globalContextRuntime.mergeForTemplates(globalContext, vars);
@@ -318,18 +325,33 @@ public final class RequestExecutionService {
 			}
 			globalContextRuntime.persist(globalContext);
 			String responseHeaders = JsonUtils.toJson(response.headers);
-			return new ExecutionResult(
+			return withDuration(new ExecutionResult(
 				response.statusCode,
 				response.statusMessage,
 				JsonUtils.prettyPrint(response.body),
 				responseHeaders,
 				String.join("\n", logs)
-			);
+			), startedAt);
 		} catch (Exception error) {
 			logs.add("gRPC request failed: " + error.getMessage());
 			globalContextRuntime.persist(globalContext);
-			return ExecutionResult.failure(logs);
+			return withDuration(ExecutionResult.failure(logs), startedAt);
 		}
+	}
+
+	private ExecutionResult withDuration(
+		ExecutionResult result,
+		long startedAt
+	) {
+		long durationMillis = Math.max(0, (System.nanoTime() - startedAt) / 1_000_000);
+		return new ExecutionResult(
+			result.statusCode,
+			result.statusMessage,
+			result.responseBody,
+			result.responseHeaders,
+			result.logs,
+			durationMillis
+		);
 	}
 
 	private VarsStore loadGlobalContext(
