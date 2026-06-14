@@ -17,11 +17,16 @@ import com.intelli.webrunner.state.RequestDetailsState;
 import com.intelli.webrunner.state.RequestStatusState;
 import com.intelli.webrunner.state.RequestType;
 import com.intelli.webrunner.state.WebrunnerState;
+import com.intelli.webrunner.ui.Base64ToolDialog;
 import com.intelli.webrunner.ui.ChainEditorPanel;
+import com.intelli.webrunner.ui.CompareToolDialog;
+import com.intelli.webrunner.ui.JsonToolDialog;
+import com.intelli.webrunner.ui.JwtDecoderDialog;
 import com.intelli.webrunner.ui.RequestEditorPanel;
 import com.intelli.webrunner.ui.RequestTreePanel;
 import com.intelli.webrunner.ui.ResponseViewerPanel;
 import com.intelli.webrunner.ui.SettingsDialog;
+import com.intelli.webrunner.ui.UuidGeneratorDialog;
 import com.intelli.webrunner.ui.WebrunnerInfoDialog;
 import com.intelli.webrunner.util.ContentDispositionUtils;
 import com.intelli.webrunner.util.FileNameUtils;
@@ -39,6 +44,7 @@ import javax.swing.AbstractAction;
 import javax.swing.ActionMap;
 import javax.swing.InputMap;
 import javax.swing.JButton;
+import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JFileChooser;
 import javax.swing.JMenuItem;
@@ -48,6 +54,7 @@ import javax.swing.JPopupMenu;
 import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.KeyStroke;
+import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
@@ -82,6 +89,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 	private final JButton newFolderButton;
 	private final JButton newRequestButton;
 	private final JButton moreButton;
+	private final JButton devToolsButton;
 	private final JButton deleteButton;
 	private final CardLayout editorCards;
 	private final JPanel editorPanel;
@@ -111,6 +119,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		this.newFolderButton = new JButton("", AllIcons.Actions.NewFolder);
 		this.newRequestButton = new JButton("", Actions.AddFile);
 		this.moreButton = new JButton("⋮");
+		this.devToolsButton = new JButton("", AllIcons.General.ExternalTools);
 		this.deleteButton = new JButton("-");
 
 		this.editorCards = new CardLayout();
@@ -154,16 +163,21 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		Dimension compactButton = new Dimension(28, 28);
 		moreButton.setPreferredSize(compactButton);
 		moreButton.setMargin(new Insets(0, 0, 0, 0));
+		devToolsButton.setPreferredSize(compactButton);
+		devToolsButton.setMargin(new Insets(0, 0, 0, 0));
+		devToolsButton.setToolTipText("Dev Tools");
 		deleteButton.setPreferredSize(compactButton);
 		deleteButton.setMargin(new Insets(0, 0, 0, 0));
 		leftActions.add(newFolderButton);
 		leftActions.add(newRequestButton);
 		leftActions.add(deleteButton);
 		leftActions.add(moreButton);
+		leftActions.add(devToolsButton);
 		newFolderButton.addActionListener(e -> createFolder());
 		newRequestButton.addActionListener(e -> createRequest());
 		deleteButton.addActionListener(e -> deleteSelected());
 		moreButton.addActionListener(e -> showMoreMenu());
+		devToolsButton.addActionListener(e -> showDevToolsMenu());
 
 		leftPanel.add(leftActions, BorderLayout.NORTH);
 		leftPanel.setMinimumSize(new Dimension(220, 0));
@@ -260,6 +274,26 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		menu.show(moreButton, 0, moreButton.getHeight());
 	}
 
+	private void showDevToolsMenu() {
+		JPopupMenu menu = new JPopupMenu();
+		JMenuItem jwtItem = new JMenuItem("JWT");
+		JMenuItem base64Item = new JMenuItem("Base64");
+		JMenuItem jsonItem = new JMenuItem("JSON");
+		JMenuItem compareItem = new JMenuItem("Compare");
+		JMenuItem uuidItem = new JMenuItem("Generate UUID");
+		jwtItem.addActionListener(e -> JwtDecoderDialog.show(root, project));
+		base64Item.addActionListener(e -> Base64ToolDialog.show(root, project));
+		jsonItem.addActionListener(e -> JsonToolDialog.show(root));
+		compareItem.addActionListener(e -> CompareToolDialog.show(root, project));
+		uuidItem.addActionListener(e -> UuidGeneratorDialog.show(root));
+		menu.add(jwtItem);
+		menu.add(base64Item);
+		menu.add(jsonItem);
+		menu.add(compareItem);
+		menu.add(uuidItem);
+		menu.show(devToolsButton, 0, devToolsButton.getHeight());
+	}
+
 	private void renameSelected() {
 		if (currentNode == null) {
 			return;
@@ -333,24 +367,33 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 	}
 
 	private void createRequest() {
-		String name = JOptionPane.showInputDialog(root, "Request name:");
+		JTextField nameField = new JTextField();
+		JComboBox<RequestType> typeCombo = new JComboBox<>(RequestType.values());
+		typeCombo.setSelectedItem(RequestType.HTTP);
+		Object[] fields = {
+			"Request name:", nameField,
+			"Request type:", typeCombo
+		};
+		int result = JOptionPane.showConfirmDialog(
+			root,
+			fields,
+			"New Request",
+			JOptionPane.OK_CANCEL_OPTION,
+			JOptionPane.PLAIN_MESSAGE
+		);
+		if (result != JOptionPane.OK_OPTION) {
+			return;
+		}
+		String name = nameField.getText();
 		if (name == null || name.isBlank()) {
 			return;
 		}
-		RequestType type = (RequestType) JOptionPane.showInputDialog(
-			root,
-			"Request type:",
-			"New Request",
-			JOptionPane.PLAIN_MESSAGE,
-			null,
-			RequestType.values(),
-			RequestType.HTTP
-		);
+		RequestType type = (RequestType) typeCombo.getSelectedItem();
 		if (type == null) {
 			return;
 		}
 		String parentId = treePanel.selectedFolderId();
-		NodeState created = stateService.createRequest(name, type, parentId);
+		NodeState created = stateService.createRequest(name.trim(), type, parentId);
 		reloadTree(created.id);
 	}
 

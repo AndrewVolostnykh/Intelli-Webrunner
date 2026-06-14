@@ -61,6 +61,60 @@ The Global Context button opens `GlobalContextDialog`.
 
 It loads and saves global context through `GlobalWebrunnerStateService`.
 
+## Dev Tools
+
+### `com.intelli.webrunner.toolwindow.WebrunnerToolWindowPanel`
+
+`WebrunnerToolWindowPanel` owns the Dev Tools toolbar button and menu. The menu opens small utility dialogs for ad hoc developer tasks.
+
+Current Dev Tools entries include:
+
+- JWT
+- Base64
+- JSON
+- Compare
+- Generate UUID
+
+### `com.intelli.webrunner.ui.JwtDecoderDialog`
+
+`JwtDecoderDialog` opens the JWT decoder window.
+
+### `com.intelli.webrunner.ui.JwtDecoderPanel`
+
+`JwtDecoderPanel` provides the JWT decoder UI. It accepts a JWT or `Bearer` token and displays decoded header and payload JSON.
+
+### `com.intelli.webrunner.ui.Base64ToolDialog`
+
+`Base64ToolDialog` opens the Base64 utility window.
+
+### `com.intelli.webrunner.ui.Base64ToolPanel`
+
+`Base64ToolPanel` provides two soft-wrapped text areas for Base64 conversion. It can decode Base64 to content or swap direction and encode content to Base64.
+
+### `com.intelli.webrunner.ui.JsonToolDialog`
+
+`JsonToolDialog` opens the JSON utility window.
+
+### `com.intelli.webrunner.ui.JsonToolPanel`
+
+`JsonToolPanel` provides a soft-wrapped JSON editor with Minify and Beautify actions backed by Jackson parsing and formatting.
+
+### `com.intelli.webrunner.ui.CompareToolDialog`
+
+`CompareToolDialog` opens the Compare utility input window.
+
+### `com.intelli.webrunner.ui.CompareToolPanel`
+
+`CompareToolPanel` provides left and right soft-wrapped text inputs and opens IntelliJ's Diff Viewer with `DiffManager` and `SimpleDiffRequest`. The diff is opened with `DiffDialogHints.FRAME` so it appears in a separate IntelliJ window instead of an editor tab.
+
+### `com.intelli.webrunner.ui.UuidGeneratorDialog`
+
+`UuidGeneratorDialog` opens the UUID generator window.
+
+### `com.intelli.webrunner.ui.UuidGeneratorPanel`
+
+`UuidGeneratorPanel` displays a generated UUID and provides Generate and Copy actions.
+
 ## Response UI
 
 ### `com.intelli.webrunner.ui`

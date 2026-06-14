@@ -14,6 +14,7 @@ Webrunner is an IntelliJ Platform plugin for creating, running, debugging, impor
 - Import and export OpenAPI documents with Webrunner metadata.
 - Generate request bodies from Java classes and `.proto` messages.
 - Format JSON request and response bodies.
+- Use Dev Tools for JWT decoding, Base64 conversion, JSON formatting, text comparison, and UUID generation.
 - Open responses in separate editor windows.
 - Save binary responses to disk.
 
@@ -34,6 +35,18 @@ The tree lets you:
 - Open requests in the editor panel.
 
 Request changes are saved automatically to the plugin state.
+
+## Dev Tools
+
+The Dev Tools button in the Webrunner tool window opens small utility tools for common developer tasks.
+
+Available tools:
+
+- `JWT`: paste a JWT or `Bearer` token and inspect the decoded header, payload, and signature data.
+- `Base64`: decode Base64 into content or swap direction and encode content into Base64. Both input areas use soft wrap for long values.
+- `JSON`: paste JSON and use `Minify` to compact it or `Beautify` to format it with indentation. The editor uses soft wrap.
+- `Compare`: paste left and right content, then open IntelliJ's Diff Viewer in a separate window to inspect differences.
+- `Generate UUID`: generate a random UUID and copy it to the clipboard.
 
 ## HTTP Requests
 
