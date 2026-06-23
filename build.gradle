@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'com.intelli.webrunner'
-version = '0.13.0'
+version = '0.14.0'
 
 repositories {
     mavenCentral()
@@ -36,6 +36,7 @@ dependencies {
     implementation 'io.grpc:grpc-stub:1.63.0'
     implementation 'io.grpc:grpc-services:1.63.0'
     implementation 'com.google.protobuf:protobuf-java-util:3.25.3'
+    implementation 'org.apache.kafka:kafka-clients:3.7.1'
     implementation 'org.mozilla:rhino:1.7.14'
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.3'
 }

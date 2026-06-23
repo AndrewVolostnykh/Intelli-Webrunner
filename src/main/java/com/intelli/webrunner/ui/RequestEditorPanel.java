@@ -1,6 +1,7 @@
 package com.intelli.webrunner.ui;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.intelli.webrunner.debug.DebugCallSession;
 import com.intelli.webrunner.execution.DownloadResult;
 import com.intelli.webrunner.execution.ExecutionResult;
@@ -8,6 +9,10 @@ import com.intelli.webrunner.execution.HttpExecutor;
 import com.intelli.webrunner.execution.RequestExecutionService;
 import com.intelli.webrunner.grpc.GrpcExecutor;
 import com.intelli.webrunner.grpc.GrpcServiceInfo;
+import com.intelli.webrunner.kafka.KafkaListenMessage;
+import com.intelli.webrunner.kafka.KafkaListenRequest;
+import com.intelli.webrunner.kafka.KafkaListenerService;
+import com.intelli.webrunner.kafka.KafkaMetadataService;
 import com.intelli.webrunner.script.ScriptRuntime;
 import com.intelli.webrunner.state.FormEntryState;
 import com.intelli.webrunner.state.GlobalWebrunnerStateService;
@@ -91,6 +96,8 @@ public final class RequestEditorPanel {
 	private final TemplateEngine templateEngine;
 	private final HttpExecutor httpExecutor;
 	private final GrpcExecutor grpcExecutor;
+	private final KafkaMetadataService kafkaMetadataService;
+	private final KafkaListenerService kafkaListenerService;
 	private final ObjectMapper mapper = new ObjectMapper();
 
 	private final JPanel root = new JPanel(new BorderLayout());
@@ -119,6 +126,17 @@ public final class RequestEditorPanel {
 	private final JButton grpcSendButton = new JButton(AllIcons.Actions.Execute);
 	private final JButton grpcDebugButton = new JButton(AllIcons.Actions.StartDebugger);
 
+	private final JComboBox<String> kafkaBootstrapCombo = new JComboBox<>();
+	private final JComboBox<String> kafkaTopicCombo = new JComboBox<>();
+	private final JBTextField kafkaKeyField = new JBTextField();
+	private final JButton kafkaReloadButton = new JButton(AllIcons.Actions.Refresh);
+	private final JButton kafkaSendButton = new JButton(AllIcons.Actions.Execute);
+	private final JComboBox<String> kafkaListenBootstrapCombo = new JComboBox<>();
+	private final JComboBox<String> kafkaListenTopicCombo = new JComboBox<>();
+	private final JBTextField kafkaGroupIdField = new JBTextField();
+	private final JButton kafkaListenReloadButton = new JButton(AllIcons.Actions.Refresh);
+	private final JButton kafkaListenButton = new JButton("Start Listening");
+
 	private final CardLayout requestTopCards = new CardLayout();
 	private final JPanel requestTopPanel = new JPanel(requestTopCards);
 	private final JTabbedPane requestTabs = new JTabbedPane();
@@ -142,6 +160,15 @@ public final class RequestEditorPanel {
 	private final JTable paramsTable = new JTable(paramsTableModel);
 	private final JButton addParamButton = new JButton("Add");
 	private final JButton removeParamButton = new JButton("Remove");
+	private final CardLayout paramsCards = new CardLayout();
+	private final JPanel paramsPanel = new JPanel(paramsCards);
+	private final JComboBox<String> kafkaKeyTypeCombo =
+		new JComboBox<>(new String[] {"String", "JSON", "Bytes", "Integer", "Long", "UUID"});
+	private final JComboBox<String> kafkaBodyTypeCombo =
+		new JComboBox<>(new String[] {"JSON", "String", "Bytes"});
+	private final JBTextField kafkaPartitionsField = new JBTextField();
+	private final JComboBox<String> kafkaOffsetStrategyCombo =
+		new JComboBox<>(new String[] {"Latest", "Earliest"});
 	private List<HeaderPresetState> headerPresets;
 
 	private final FileType scriptFileType;
@@ -185,6 +212,8 @@ public final class RequestEditorPanel {
 	private final Map<String, List<GrpcServiceInfo>> grpcServicesCache = new ConcurrentHashMap<>();
 	private final Map<String, String> grpcServiceSelection = new ConcurrentHashMap<>();
 	private boolean isGrpcReloading = false;
+	private boolean isKafkaReloading = false;
+	private final Map<String, List<KafkaListenMessage>> kafkaListenMessagesByRequest = new ConcurrentHashMap<>();
 
 	private DebugCallSession debugCallSession;
 
@@ -196,7 +225,9 @@ public final class RequestEditorPanel {
 		ScriptRuntime scriptRuntime,
 		TemplateEngine templateEngine,
 		HttpExecutor httpExecutor,
-		GrpcExecutor grpcExecutor
+		GrpcExecutor grpcExecutor,
+		KafkaMetadataService kafkaMetadataService,
+		KafkaListenerService kafkaListenerService
 	) {
 		this.project = project;
 		this.stateService = stateService;
@@ -206,6 +237,8 @@ public final class RequestEditorPanel {
 		this.templateEngine = templateEngine;
 		this.httpExecutor = httpExecutor;
 		this.grpcExecutor = grpcExecutor;
+		this.kafkaMetadataService = kafkaMetadataService;
+		this.kafkaListenerService = kafkaListenerService;
 		this.scriptFileType = resolveScriptFileType();
 		this.requestBodyArea = new JsonBodyEditorField(project);
 		this.beforeScriptArea = createScriptEditor();
@@ -239,6 +272,7 @@ public final class RequestEditorPanel {
 
 	public void dispose() {
 		urlParamSyncTimer.stop();
+		kafkaListenerService.shutdown();
 		if (debugCallSession != null) {
 			debugCallSession.abandon(true);
 		}
@@ -256,6 +290,8 @@ public final class RequestEditorPanel {
 	private void buildComponent() {
 		requestTopPanel.add(buildHttpTopBar(), "http");
 		requestTopPanel.add(buildGrpcTopBar(), "grpc");
+		requestTopPanel.add(buildKafkaTopBar(), "kafka");
+		requestTopPanel.add(buildKafkaListenTopBar(), "kafkaListen");
 		JPanel topContainer = new JPanel(new BorderLayout());
 		topContainer.add(requestTopPanel, BorderLayout.CENTER);
 		root.add(topContainer, BorderLayout.NORTH);
@@ -263,8 +299,11 @@ public final class RequestEditorPanel {
 		bodyPanel.add(new JBScrollPane(requestBodyArea), "raw");
 		bodyPanel.add(buildFormDataPanel(), "form");
 		bodyPanel.add(buildBinaryPanel(), "binary");
+		paramsPanel.add(buildParamsTablePanel(), "table");
+		paramsPanel.add(buildKafkaParamsPanel(), "kafka");
+		paramsPanel.add(buildKafkaListenParamsPanel(), "kafkaListen");
 		requestTabs.add("Body", bodyPanel);
-		requestTabs.add("Params", buildParamsPanel());
+		requestTabs.add("Params", paramsPanel);
 		requestTabs.add("Headers", buildHeadersPanel());
 		requestTabs.add("Before Request", new JBScrollPane(beforeScriptArea));
 		requestTabs.add("After Request", new JBScrollPane(afterScriptArea));
@@ -294,6 +333,130 @@ public final class RequestEditorPanel {
 		httpSendDownloadButton.addActionListener(e -> executeHttpDownload());
 		httpDebugButton.addActionListener(e -> startDebugCall());
 		httpGlobalContextButton.addActionListener(e -> GlobalContextDialog.show(root, project, stateService));
+		return topBar;
+	}
+
+	private JPanel buildKafkaTopBar() {
+		JPanel topBar = new JPanel(new GridBagLayout());
+		GridBagConstraints constraints = new GridBagConstraints();
+		constraints.gridy = 0;
+		constraints.insets = new Insets(0, 4, 0, 4);
+		constraints.anchor = GridBagConstraints.WEST;
+
+		kafkaBootstrapCombo.setEditable(true);
+		kafkaTopicCombo.setEditable(true);
+		kafkaBootstrapCombo.setPrototypeDisplayValue("localhost:9092,localhost:9093");
+		kafkaTopicCombo.setPrototypeDisplayValue("example.kafka.topic.name");
+		kafkaKeyField.setColumns(18);
+
+		constraints.gridx = 0;
+		constraints.weightx = 0;
+		constraints.fill = GridBagConstraints.NONE;
+		topBar.add(new JLabel("Bootstrap servers"), constraints);
+
+		constraints.gridx = 1;
+		constraints.weightx = 0.35;
+		constraints.fill = GridBagConstraints.HORIZONTAL;
+		topBar.add(kafkaBootstrapCombo, constraints);
+
+		constraints.gridx = 2;
+		constraints.weightx = 0;
+		constraints.fill = GridBagConstraints.NONE;
+		topBar.add(new JLabel("Topic"), constraints);
+
+		constraints.gridx = 3;
+		constraints.weightx = 0.35;
+		constraints.fill = GridBagConstraints.HORIZONTAL;
+		topBar.add(kafkaTopicCombo, constraints);
+
+		constraints.gridx = 4;
+		constraints.weightx = 0;
+		constraints.fill = GridBagConstraints.NONE;
+		topBar.add(new JLabel("Key"), constraints);
+
+		constraints.gridx = 5;
+		constraints.weightx = 0.3;
+		constraints.fill = GridBagConstraints.HORIZONTAL;
+		topBar.add(kafkaKeyField, constraints);
+
+		configureIconButton(kafkaReloadButton, "Refresh Kafka metadata");
+		configureIconButton(kafkaSendButton, "Send Kafka message");
+
+		constraints.gridx = 6;
+		constraints.weightx = 0;
+		constraints.fill = GridBagConstraints.NONE;
+		topBar.add(kafkaReloadButton, constraints);
+
+		constraints.gridx = 7;
+		topBar.add(kafkaSendButton, constraints);
+
+		constraints.gridx = 8;
+		topBar.add(createRequestMenuButton(), constraints);
+
+		kafkaReloadButton.addActionListener(e -> refreshKafkaMetadata());
+		kafkaSendButton.addActionListener(e -> executeKafka());
+		return topBar;
+	}
+
+	private JPanel buildKafkaListenTopBar() {
+		JPanel topBar = new JPanel(new GridBagLayout());
+		GridBagConstraints constraints = new GridBagConstraints();
+		constraints.gridy = 0;
+		constraints.insets = new Insets(0, 4, 0, 4);
+		constraints.anchor = GridBagConstraints.WEST;
+
+		kafkaListenBootstrapCombo.setEditable(true);
+		kafkaListenTopicCombo.setEditable(true);
+		kafkaListenBootstrapCombo.setPrototypeDisplayValue("localhost:9092,localhost:9093");
+		kafkaListenTopicCombo.setPrototypeDisplayValue("example.kafka.topic.name");
+		kafkaGroupIdField.setColumns(18);
+
+		constraints.gridx = 0;
+		constraints.weightx = 0;
+		constraints.fill = GridBagConstraints.NONE;
+		topBar.add(new JLabel("Bootstrap servers"), constraints);
+
+		constraints.gridx = 1;
+		constraints.weightx = 0.35;
+		constraints.fill = GridBagConstraints.HORIZONTAL;
+		topBar.add(kafkaListenBootstrapCombo, constraints);
+
+		constraints.gridx = 2;
+		constraints.weightx = 0;
+		constraints.fill = GridBagConstraints.NONE;
+		topBar.add(new JLabel("Topic"), constraints);
+
+		constraints.gridx = 3;
+		constraints.weightx = 0.35;
+		constraints.fill = GridBagConstraints.HORIZONTAL;
+		topBar.add(kafkaListenTopicCombo, constraints);
+
+		constraints.gridx = 4;
+		constraints.weightx = 0;
+		constraints.fill = GridBagConstraints.NONE;
+		topBar.add(new JLabel("Group ID"), constraints);
+
+		constraints.gridx = 5;
+		constraints.weightx = 0.3;
+		constraints.fill = GridBagConstraints.HORIZONTAL;
+		topBar.add(kafkaGroupIdField, constraints);
+
+		configureIconButton(kafkaListenReloadButton, "Refresh Kafka metadata");
+		kafkaListenButton.setToolTipText("Start or stop Kafka listening");
+
+		constraints.gridx = 6;
+		constraints.weightx = 0;
+		constraints.fill = GridBagConstraints.NONE;
+		topBar.add(kafkaListenReloadButton, constraints);
+
+		constraints.gridx = 7;
+		topBar.add(kafkaListenButton, constraints);
+
+		constraints.gridx = 8;
+		topBar.add(createRequestMenuButton(), constraints);
+
+		kafkaListenReloadButton.addActionListener(e -> refreshKafkaListenMetadata());
+		kafkaListenButton.addActionListener(e -> toggleKafkaListening());
 		return topBar;
 	}
 
@@ -411,7 +574,7 @@ public final class RequestEditorPanel {
 		);
 	}
 
-	private JPanel buildParamsPanel() {
+	private JPanel buildParamsTablePanel() {
 		return buildTablePanel(
 			paramsTable,
 			this::configureParamsTableColumns,
@@ -420,6 +583,56 @@ public final class RequestEditorPanel {
 			paramsTableModel::addEmptyRow,
 			paramsTableModel::removeRow
 		);
+	}
+
+	private JPanel buildKafkaParamsPanel() {
+		JPanel panel = new JPanel(new BorderLayout());
+		JPanel form = new JPanel(new GridBagLayout());
+		GridBagConstraints constraints = new GridBagConstraints();
+		constraints.insets = new Insets(8, 8, 0, 8);
+		constraints.anchor = GridBagConstraints.WEST;
+
+		addKafkaParamRow(form, constraints, 0, "Key type", kafkaKeyTypeCombo);
+		addKafkaParamRow(form, constraints, 1, "Body type", kafkaBodyTypeCombo);
+		kafkaPartitionsField.setColumns(16);
+		addKafkaParamRow(form, constraints, 2, "Partitions", kafkaPartitionsField);
+
+		JPanel wrapper = new JPanel(new BorderLayout());
+		wrapper.add(form, BorderLayout.NORTH);
+		panel.add(wrapper, BorderLayout.CENTER);
+		return panel;
+	}
+
+	private JPanel buildKafkaListenParamsPanel() {
+		JPanel panel = new JPanel(new BorderLayout());
+		JPanel form = new JPanel(new GridBagLayout());
+		GridBagConstraints constraints = new GridBagConstraints();
+		constraints.insets = new Insets(8, 8, 0, 8);
+		constraints.anchor = GridBagConstraints.WEST;
+		addKafkaParamRow(form, constraints, 0, "Offset strategy", kafkaOffsetStrategyCombo);
+		JPanel wrapper = new JPanel(new BorderLayout());
+		wrapper.add(form, BorderLayout.NORTH);
+		panel.add(wrapper, BorderLayout.CENTER);
+		return panel;
+	}
+
+	private void addKafkaParamRow(
+		JPanel form,
+		GridBagConstraints constraints,
+		int row,
+		String label,
+		JComponent field
+	) {
+		constraints.gridy = row;
+		constraints.gridx = 0;
+		constraints.weightx = 0;
+		constraints.fill = GridBagConstraints.NONE;
+		form.add(new JLabel(label), constraints);
+
+		constraints.gridx = 1;
+		constraints.weightx = 1;
+		constraints.fill = GridBagConstraints.HORIZONTAL;
+		form.add(field, constraints);
 	}
 
 	private JPanel buildFormDataPanel() {
@@ -635,6 +848,12 @@ public final class RequestEditorPanel {
 		} else if (node.requestType == RequestType.GRPC) {
 			loadGrpc(node.id);
 			requestTopCards.show(requestTopPanel, "grpc");
+		} else if (node.requestType == RequestType.KAFKA) {
+			loadKafka(node.id);
+			requestTopCards.show(requestTopPanel, "kafka");
+		} else if (node.requestType == RequestType.KAFKA_LISTEN) {
+			loadKafkaListen(node);
+			requestTopCards.show(requestTopPanel, "kafkaListen");
 		}
 	}
 
@@ -654,6 +873,7 @@ public final class RequestEditorPanel {
 			UrlParamUtils.mergeParamsWithUrl(status != null ? status.requestParams : List.of(),
 				details != null ? details.url : null);
 		paramsTableModel.setHeaders(mergedParams, true);
+		paramsCards.show(paramsPanel, "table");
 		switchPayloadType();
 		isLoading = false;
 	}
@@ -668,6 +888,7 @@ public final class RequestEditorPanel {
 		bodyCards.show(bodyPanel, "raw");
 		headersTableModel.setHeaders(status != null ? status.requestHeaders : List.of(), false);
 		paramsTableModel.setHeaders(status != null ? status.requestParams : List.of(), true);
+		paramsCards.show(paramsPanel, "table");
 		isLoading = false;
 		if (details != null && details.target != null && !details.target.isBlank()) {
 			if (details.service != null) {
@@ -675,6 +896,44 @@ public final class RequestEditorPanel {
 			}
 			reloadGrpcServices();
 		}
+	}
+
+	private void loadKafka(String requestId) {
+		isLoading = true;
+		RequestDetailsState details = stateService.getRequestDetails(requestId);
+		RequestStatusState status = stateService.getRequestStatus(requestId);
+		updateHeaderNameEditor(RequestType.HTTP);
+		setComboEditorText(kafkaBootstrapCombo, details != null ? safe(details.kafkaBootstrapServers) : "");
+		setComboEditorText(kafkaTopicCombo, details != null ? safe(details.kafkaTopic) : "");
+		kafkaKeyField.setText(details != null ? safe(details.kafkaKey) : "");
+		loadSharedStatus(status);
+		bodyCards.show(bodyPanel, "raw");
+		headersTableModel.setHeaders(status != null ? status.requestHeaders : List.of(), true);
+		kafkaKeyTypeCombo.setSelectedItem(status != null && status.kafkaKeyType != null ? status.kafkaKeyType : "String");
+		kafkaBodyTypeCombo.setSelectedItem(status != null && status.kafkaBodyType != null ? status.kafkaBodyType : "JSON");
+		kafkaPartitionsField.setText(status != null ? safe(status.kafkaPartitions) : "");
+		paramsCards.show(paramsPanel, "kafka");
+		isLoading = false;
+	}
+
+	private void loadKafkaListen(NodeState node) {
+		isLoading = true;
+		RequestDetailsState details = stateService.getRequestDetails(node.id);
+		RequestStatusState status = stateService.getRequestStatus(node.id);
+		updateHeaderNameEditor(RequestType.HTTP);
+		setComboEditorText(kafkaListenBootstrapCombo, details != null ? safe(details.kafkaBootstrapServers) : "");
+		setComboEditorText(kafkaListenTopicCombo, details != null ? safe(details.kafkaTopic) : "");
+		String groupId = details != null ? safe(details.kafkaGroupId) : "";
+		kafkaGroupIdField.setText(groupId.isBlank() ? safe(node.name) + "-webrunner" : groupId);
+		loadSharedStatus(status);
+		bodyCards.show(bodyPanel, "raw");
+		headersTableModel.setHeaders(status != null ? status.requestHeaders : List.of(), true);
+		kafkaOffsetStrategyCombo.setSelectedItem(
+			status != null && status.kafkaOffsetStrategy != null ? status.kafkaOffsetStrategy : "Latest"
+		);
+		paramsCards.show(paramsPanel, "kafkaListen");
+		kafkaListenButton.setText(isKafkaListening(node.id) ? "Stop Listening" : "Start Listening");
+		isLoading = false;
 	}
 
 	private void loadSharedStatus(RequestStatusState status) {
@@ -690,13 +949,17 @@ public final class RequestEditorPanel {
 
 	public void saveActive() {
 		if (isLoading || isStoppingTableEditing || isSyncingParamsFromUrl || activeNode == null
-			|| activeNode.type != NodeType.REQUEST) {
+			|| activeNode.type != NodeType.REQUEST || isKafkaReloading) {
 			return;
 		}
 		if (activeNode.requestType == RequestType.HTTP) {
 			saveHttp(activeNode.id);
 		} else if (activeNode.requestType == RequestType.GRPC) {
 			saveGrpc(activeNode.id);
+		} else if (activeNode.requestType == RequestType.KAFKA) {
+			saveKafka(activeNode.id);
+		} else if (activeNode.requestType == RequestType.KAFKA_LISTEN) {
+			saveKafkaListen(activeNode.id);
 		}
 	}
 
@@ -735,6 +998,20 @@ public final class RequestEditorPanel {
 		stateService.saveRequestStatus(status);
 	}
 
+	private void saveKafkaListen(String requestId) {
+		RequestDetailsState details = requestDetailsForSave(requestId, RequestType.KAFKA_LISTEN);
+		details.kafkaBootstrapServers = comboEditorText(kafkaListenBootstrapCombo);
+		details.kafkaTopic = comboEditorText(kafkaListenTopicCombo);
+		details.kafkaGroupId = kafkaGroupIdField.getText();
+		stateService.saveRequestDetails(details);
+
+		RequestStatusState status = buildStatus(requestId);
+		status.kafkaOffsetStrategy = kafkaOffsetStrategyCombo.getSelectedItem() == null
+			? ""
+			: String.valueOf(kafkaOffsetStrategyCombo.getSelectedItem());
+		stateService.saveRequestStatus(status);
+	}
+
 	private void saveGrpc(String requestId) {
 		RequestDetailsState details = requestDetailsForSave(requestId, RequestType.GRPC);
 		details.target = grpcTargetField.getText();
@@ -745,6 +1022,22 @@ public final class RequestEditorPanel {
 		stateService.saveRequestDetails(details);
 
 		RequestStatusState status = buildStatus(requestId);
+		stateService.saveRequestStatus(status);
+	}
+
+	private void saveKafka(String requestId) {
+		RequestDetailsState details = requestDetailsForSave(requestId, RequestType.KAFKA);
+		details.kafkaBootstrapServers = comboEditorText(kafkaBootstrapCombo);
+		details.kafkaTopic = comboEditorText(kafkaTopicCombo);
+		details.kafkaKey = kafkaKeyField.getText();
+		stateService.saveRequestDetails(details);
+
+		RequestStatusState status = buildStatus(requestId);
+		status.kafkaKeyType =
+			kafkaKeyTypeCombo.getSelectedItem() == null ? "" : String.valueOf(kafkaKeyTypeCombo.getSelectedItem());
+		status.kafkaBodyType =
+			kafkaBodyTypeCombo.getSelectedItem() == null ? "" : String.valueOf(kafkaBodyTypeCombo.getSelectedItem());
+		status.kafkaPartitions = kafkaPartitionsField.getText();
 		stateService.saveRequestStatus(status);
 	}
 
@@ -880,6 +1173,295 @@ public final class RequestEditorPanel {
 		});
 	}
 
+	public void executeKafka() {
+		if (activeNode == null || activeNode.requestType != RequestType.KAFKA) {
+			return;
+		}
+		saveActive();
+		RequestDetailsState details = stateService.getRequestDetails(activeNode.id);
+		if (details == null || details.kafkaBootstrapServers == null || details.kafkaBootstrapServers.isBlank()) {
+			responseViewer.showLog("Missing Kafka bootstrap servers.");
+			return;
+		}
+		if (details.kafkaTopic == null || details.kafkaTopic.isBlank()) {
+			responseViewer.showLog("Missing Kafka topic.");
+			return;
+		}
+		RequestStatusState status = stateService.getRequestStatus(activeNode.id);
+		List<HeaderEntryState> headers = status != null ? status.requestHeaders : List.of();
+		String body = status != null ? status.requestBody : "";
+		String before = status != null ? status.beforeScript : "";
+		String after = status != null ? status.afterScript : "";
+		String keyType = status != null && status.kafkaKeyType != null ? status.kafkaKeyType : "String";
+		String bodyType = status != null && status.kafkaBodyType != null ? status.kafkaBodyType : "JSON";
+		String partition = status != null ? status.kafkaPartitions : "";
+
+		responseViewer.clearStatus();
+		runInBackground(() -> {
+			ExecutionResult result = executionService.executeKafkaWithScripts(
+				details,
+				headers,
+				body,
+				before,
+				after,
+				keyType,
+				bodyType,
+				partition,
+				null
+			);
+			responseViewer.updateResponse(result, false);
+		});
+	}
+
+	public void toggleKafkaListeningFromShortcut() {
+		toggleKafkaListening();
+	}
+
+	private void refreshKafkaMetadata() {
+		if (activeNode == null || activeNode.requestType != RequestType.KAFKA) {
+			return;
+		}
+		saveActive();
+		String requestId = activeNode.id;
+		String bootstrapServers = comboEditorText(kafkaBootstrapCombo);
+		if (bootstrapServers.isBlank()) {
+			responseViewer.showLog("Missing Kafka bootstrap servers.");
+			return;
+		}
+		responseViewer.showLog("Loading Kafka topics...");
+		runInBackground(() -> {
+			try {
+				List<String> topics = kafkaMetadataService.listTopics(bootstrapServers);
+				invokeLater(() -> applyKafkaTopics(requestId, topics));
+			} catch (Exception error) {
+				invokeLater(() -> responseViewer.showLog(error.getMessage()));
+			}
+		});
+	}
+
+	private void applyKafkaTopics(
+		String requestId,
+		List<String> topics
+	) {
+		if (activeNode == null || !Objects.equals(activeNode.id, requestId)) {
+			return;
+		}
+		String selectedTopic = comboEditorText(kafkaTopicCombo);
+		isKafkaReloading = true;
+		try {
+			kafkaTopicCombo.removeAllItems();
+			for (String topic : topics) {
+				kafkaTopicCombo.addItem(topic);
+			}
+			if (!selectedTopic.isBlank()) {
+				setComboEditorText(kafkaTopicCombo, selectedTopic);
+			} else if (!topics.isEmpty()) {
+				kafkaTopicCombo.setSelectedItem(topics.get(0));
+			}
+		} finally {
+			isKafkaReloading = false;
+		}
+		saveActive();
+		responseViewer.showLog(topics.isEmpty() ? "No Kafka topics found." : "Loaded Kafka topics: " + topics.size());
+	}
+
+	private void refreshKafkaListenMetadata() {
+		if (activeNode == null || activeNode.requestType != RequestType.KAFKA_LISTEN) {
+			return;
+		}
+		saveActive();
+		String requestId = activeNode.id;
+		String bootstrapServers = comboEditorText(kafkaListenBootstrapCombo);
+		if (bootstrapServers.isBlank()) {
+			responseViewer.showLog("Missing Kafka bootstrap servers.");
+			return;
+		}
+		responseViewer.showLog("Loading Kafka topics...");
+		runInBackground(() -> {
+			try {
+				List<String> topics = kafkaMetadataService.listTopics(bootstrapServers);
+				invokeLater(() -> applyKafkaListenTopics(requestId, topics));
+			} catch (Exception error) {
+				invokeLater(() -> responseViewer.showLog(error.getMessage()));
+			}
+		});
+	}
+
+	private void applyKafkaListenTopics(
+		String requestId,
+		List<String> topics
+	) {
+		if (activeNode == null || !Objects.equals(activeNode.id, requestId)) {
+			return;
+		}
+		String selectedTopic = comboEditorText(kafkaListenTopicCombo);
+		isKafkaReloading = true;
+		try {
+			kafkaListenTopicCombo.removeAllItems();
+			for (String topic : topics) {
+				kafkaListenTopicCombo.addItem(topic);
+			}
+			if (!selectedTopic.isBlank()) {
+				setComboEditorText(kafkaListenTopicCombo, selectedTopic);
+			} else if (!topics.isEmpty()) {
+				kafkaListenTopicCombo.setSelectedItem(topics.get(0));
+			}
+		} finally {
+			isKafkaReloading = false;
+		}
+		saveActive();
+		responseViewer.showLog(topics.isEmpty() ? "No Kafka topics found." : "Loaded Kafka topics: " + topics.size());
+	}
+
+	private void toggleKafkaListening() {
+		if (activeNode == null || activeNode.requestType != RequestType.KAFKA_LISTEN) {
+			return;
+		}
+		if (isKafkaListening(activeNode.id)) {
+			stopKafkaListening();
+			return;
+		}
+		startKafkaListening();
+	}
+
+	private void startKafkaListening() {
+		if (activeNode == null || activeNode.requestType != RequestType.KAFKA_LISTEN) {
+			return;
+		}
+		saveActive();
+		RequestDetailsState details = stateService.getRequestDetails(activeNode.id);
+		RequestStatusState status = stateService.getRequestStatus(activeNode.id);
+		if (details == null || details.kafkaBootstrapServers == null || details.kafkaBootstrapServers.isBlank()) {
+			responseViewer.showLog("Missing Kafka bootstrap servers.");
+			return;
+		}
+		if (details.kafkaTopic == null || details.kafkaTopic.isBlank()) {
+			responseViewer.showLog("Missing Kafka topic.");
+			return;
+		}
+		if (details.kafkaGroupId == null || details.kafkaGroupId.isBlank()) {
+			responseViewer.showLog("Missing Kafka group id.");
+			return;
+		}
+
+		String requestId = activeNode.id;
+		KafkaListenRequest request = new KafkaListenRequest();
+		request.bootstrapServers = details.kafkaBootstrapServers;
+		request.topic = details.kafkaTopic;
+		request.groupId = details.kafkaGroupId;
+		request.offsetStrategy =
+			status != null && status.kafkaOffsetStrategy != null ? status.kafkaOffsetStrategy : "Latest";
+		List<KafkaListenMessage> existingMessages = loadKafkaListenMessages(requestId);
+		kafkaListenMessagesByRequest.put(requestId, existingMessages);
+		kafkaListenButton.setText("Stop Listening");
+		updateKafkaListenResponse(
+			requestId,
+			toPrettyJson(existingMessages),
+			"Listening for Kafka messages... Received: " + existingMessages.size()
+		);
+		try {
+			kafkaListenerService.start(
+				requestId,
+				request,
+				message -> invokeLater(() -> appendKafkaListenMessage(requestId, message)),
+				error -> invokeLater(() -> handleKafkaListenError(requestId, error))
+			);
+		} catch (Exception error) {
+			handleKafkaListenError(requestId, error);
+		}
+	}
+
+	private void appendKafkaListenMessage(
+		String requestId,
+		KafkaListenMessage message
+	) {
+		List<KafkaListenMessage> messages =
+			kafkaListenMessagesByRequest.computeIfAbsent(requestId, this::loadKafkaListenMessages);
+		messages.add(0, message);
+		updateKafkaListenResponse(
+			requestId,
+			toPrettyJson(messages),
+			"Listening for Kafka messages... Received: " + messages.size()
+		);
+	}
+
+	private void handleKafkaListenError(
+		String requestId,
+		Throwable error
+	) {
+		if (activeNode != null && Objects.equals(activeNode.id, requestId)) {
+			kafkaListenButton.setText("Start Listening");
+		}
+		appendKafkaListenLog(requestId, "Kafka listen failed: " + error.getMessage());
+	}
+
+	private void stopKafkaListening() {
+		if (activeNode == null || activeNode.requestType != RequestType.KAFKA_LISTEN) {
+			kafkaListenButton.setText("Start Listening");
+			return;
+		}
+		String requestId = activeNode.id;
+		kafkaListenerService.stop(requestId);
+		kafkaListenButton.setText("Start Listening");
+		appendKafkaListenLog(requestId, "Kafka listening stopped.");
+	}
+
+	private boolean isKafkaListening(String requestId) {
+		return requestId != null && kafkaListenerService.isListening(requestId);
+	}
+
+	private void updateKafkaListenResponse(
+		String requestId,
+		String body,
+		String logs
+	) {
+		ExecutionResult result = new ExecutionResult(200, "Listening", body, "{}", logs);
+		if (activeNode != null && Objects.equals(activeNode.id, requestId)) {
+			responseViewer.updateResponse(result, false);
+			return;
+		}
+		saveKafkaListenResponse(requestId, result);
+	}
+
+	private void appendKafkaListenLog(
+		String requestId,
+		String message
+	) {
+		RequestStatusState status = stateService.getRequestStatus(requestId);
+		String existing = status == null ? "" : safe(status.logs);
+		String logs = existing.isBlank() ? message : existing + "\n" + message;
+		String body = status == null ? "" : safe(status.responseBody);
+		updateKafkaListenResponse(requestId, body, logs);
+	}
+
+	private void saveKafkaListenResponse(
+		String requestId,
+		ExecutionResult result
+	) {
+		RequestStatusState status = stateService.getRequestStatus(requestId);
+		if (status == null) {
+			status = new RequestStatusState();
+			status.requestId = requestId;
+		}
+		status.responseBody = result.responseBody;
+		status.responseHeaders = result.responseHeaders;
+		status.logs = result.logs;
+		stateService.saveRequestStatus(status);
+	}
+
+	private List<KafkaListenMessage> loadKafkaListenMessages(String requestId) {
+		RequestStatusState status = stateService.getRequestStatus(requestId);
+		String body = status == null ? "" : safe(status.responseBody);
+		if (body.isBlank()) {
+			return new ArrayList<>();
+		}
+		try {
+			return new ArrayList<>(mapper.readValue(body, new TypeReference<List<KafkaListenMessage>>() {}));
+		} catch (Exception ignored) {
+			return new ArrayList<>();
+		}
+	}
+
 	private void reloadGrpcServices() {
 		if (activeNode == null || activeNode.requestType != RequestType.GRPC) {
 			return;
@@ -977,6 +1559,13 @@ public final class RequestEditorPanel {
 			}
 		});
 		grpcTargetField.getDocument().addDocumentListener(new AutoSaveListener());
+		addEditableComboAutoSave(kafkaBootstrapCombo);
+		addEditableComboAutoSave(kafkaTopicCombo);
+		kafkaKeyField.getDocument().addDocumentListener(new AutoSaveListener());
+		addEditableComboAutoSave(kafkaListenBootstrapCombo);
+		addEditableComboAutoSave(kafkaListenTopicCombo);
+		kafkaGroupIdField.getDocument().addDocumentListener(new AutoSaveListener());
+		kafkaPartitionsField.getDocument().addDocumentListener(new AutoSaveListener());
 		requestBodyArea.addDocumentListener(new EditorAutoSaveListener());
 		beforeScriptArea.addDocumentListener(new EditorAutoSaveListener());
 		afterScriptArea.addDocumentListener(new EditorAutoSaveListener());
@@ -1009,6 +1598,35 @@ public final class RequestEditorPanel {
 				saveActive();
 			}
 		});
+		kafkaBootstrapCombo.addActionListener(e -> {
+			if (!isKafkaReloading) {
+				saveActive();
+			}
+		});
+		kafkaTopicCombo.addActionListener(e -> {
+			if (!isKafkaReloading) {
+				saveActive();
+			}
+		});
+		kafkaListenBootstrapCombo.addActionListener(e -> {
+			if (!isKafkaReloading) {
+				saveActive();
+			}
+		});
+		kafkaListenTopicCombo.addActionListener(e -> {
+			if (!isKafkaReloading) {
+				saveActive();
+			}
+		});
+		kafkaKeyTypeCombo.addActionListener(e -> saveActive());
+		kafkaBodyTypeCombo.addActionListener(e -> saveActive());
+		kafkaOffsetStrategyCombo.addActionListener(e -> saveActive());
+	}
+
+	private void addEditableComboAutoSave(JComboBox<String> combo) {
+		if (combo.getEditor().getEditorComponent() instanceof javax.swing.text.JTextComponent textComponent) {
+			textComponent.getDocument().addDocumentListener(new AutoSaveListener());
+		}
 	}
 
 	private void syncUrlFromParamsTable() {
@@ -1196,6 +1814,27 @@ public final class RequestEditorPanel {
 
 	private EditorTextField createScriptEditor() {
 		return new EditorTextField("", project, scriptFileType);
+	}
+
+	private String comboEditorText(JComboBox<String> combo) {
+		Object item = combo.isEditable() ? combo.getEditor().getItem() : combo.getSelectedItem();
+		return item == null ? "" : String.valueOf(item);
+	}
+
+	private void setComboEditorText(JComboBox<String> combo, String value) {
+		if (combo.isEditable()) {
+			combo.getEditor().setItem(value == null ? "" : value);
+		} else {
+			combo.setSelectedItem(value);
+		}
+	}
+
+	private String toPrettyJson(Object value) {
+		try {
+			return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(value);
+		} catch (Exception error) {
+			return String.valueOf(value);
+		}
 	}
 
 	private static String safe(String value) {

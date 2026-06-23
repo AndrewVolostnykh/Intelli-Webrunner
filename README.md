@@ -1,12 +1,13 @@
 # Webrunner
 
-Webrunner is an IntelliJ Platform plugin for creating, running, debugging, importing, and exporting API requests directly inside the IDE. It supports HTTP requests, gRPC unary calls, chained scenarios, JavaScript scripting, variable placeholders, response inspection, and reusable project-level global context.
+Webrunner is an IntelliJ Platform plugin for creating, running, debugging, importing, and exporting API requests directly inside the IDE. It supports HTTP requests, gRPC unary calls, Kafka send/listen requests, chained scenarios, JavaScript scripting, variable placeholders, response inspection, and reusable project-level global context.
 
 ## Main Features
 
 - Manage request collections in a dedicated IntelliJ tool window.
-- Create folders, HTTP requests, gRPC requests, and chain requests.
+- Create folders, HTTP requests, gRPC requests, Kafka requests, Kafka Listen requests, and chain requests.
 - Execute requests from the editor panel, tree, or shortcuts.
+- Send Kafka messages and listen to Kafka topics from the request editor.
 - Debug requests and chains step by step with editable script stages.
 - Persist request data, scripts, variables, global context, and UI state between IDE sessions.
 - Import and export collections as Webrunner JSON.
@@ -27,6 +28,8 @@ The tree lets you:
 - Add folders.
 - Add HTTP requests.
 - Add gRPC requests.
+- Add Kafka requests.
+- Add Kafka Listen requests.
 - Add chain requests.
 - Rename, duplicate, move, and delete nodes.
 - Drag and drop nodes inside the collection.
@@ -105,6 +108,62 @@ The gRPC response viewer displays:
 - Status code.
 - Status description.
 - Timing information.
+
+## Kafka Requests
+
+Kafka requests support producing messages to Kafka topics.
+
+Supported Kafka send features:
+
+- Bootstrap servers input.
+- Topic input with refresh from Kafka metadata.
+- Message key input.
+- Headers.
+- Body.
+- Before-request JavaScript.
+- After-response JavaScript.
+- Key type selection: `String`, `JSON`, `Bytes`, `Integer`, `Long`, `UUID`.
+- Body type selection: `JSON`, `String`, `Bytes`.
+- Optional partition input.
+
+Kafka header values are sent as UTF-8 bytes by default. A header value starting with `base64:` is decoded before sending.
+
+The Kafka send response body includes:
+
+- Sent key.
+- Sent key type.
+- Sent headers.
+- Sent body.
+- Sent body type.
+- Requested partition.
+- Kafka metadata such as topic, partition, offset, timestamp, key bytes, value bytes, and header count.
+
+## Kafka Listen Requests
+
+Kafka Listen requests consume messages from a Kafka topic.
+
+Supported Kafka Listen features:
+
+- Bootstrap servers input.
+- Topic input with refresh from Kafka metadata.
+- Group ID input.
+- Default Group ID value: `<request name>-webrunner`.
+- Start Listening and Stop Listening button state.
+- Offset strategy selector in Params: `Latest` or `Earliest`.
+- Live response updates while messages are consumed.
+- Historical response body: every consumed payload is appended instead of replacing earlier messages.
+
+Listening continues when you switch to another request. The active listener keeps updating its own persisted response state, and the visible response panel updates live only when that Kafka Listen request is selected. Listening stops when you press `Stop Listening` or when the tool window is disposed.
+
+Kafka Listen response entries include:
+
+- Topic.
+- Partition.
+- Offset.
+- Timestamp.
+- Key.
+- Body.
+- Headers.
 
 ## Chain Requests
 
@@ -307,6 +366,12 @@ Supported locations:
 - Binary file path.
 - gRPC metadata.
 - gRPC body.
+- Kafka bootstrap servers.
+- Kafka topic.
+- Kafka key.
+- Kafka body.
+- Kafka headers.
+- Kafka partition.
 
 Quoted placeholders are replaced as strings:
 

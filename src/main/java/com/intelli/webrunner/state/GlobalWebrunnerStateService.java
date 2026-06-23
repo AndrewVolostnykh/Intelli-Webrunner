@@ -233,6 +233,14 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             details.target = "";
             details.service = "";
             details.grpcMethod = "";
+        } else if (type == RequestType.KAFKA) {
+            details.kafkaBootstrapServers = "";
+            details.kafkaTopic = "";
+            details.kafkaKey = "";
+        } else if (type == RequestType.KAFKA_LISTEN) {
+            details.kafkaBootstrapServers = "";
+            details.kafkaTopic = "";
+            details.kafkaGroupId = safe(name) + "-webrunner";
         }
         state.requestDetails.add(details);
 
@@ -244,6 +252,13 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         status.logs = "";
         status.beforeScript = "";
         status.afterScript = "";
+        if (type == RequestType.KAFKA) {
+            status.kafkaKeyType = "String";
+            status.kafkaBodyType = "JSON";
+            status.kafkaPartitions = "";
+        } else if (type == RequestType.KAFKA_LISTEN) {
+            status.kafkaOffsetStrategy = "Latest";
+        }
         state.requestStatuses.add(status);
 
         if (type == RequestType.CHAIN) {
@@ -328,6 +343,10 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             existing.target = details.target;
             existing.service = details.service;
             existing.grpcMethod = details.grpcMethod;
+            existing.kafkaBootstrapServers = details.kafkaBootstrapServers;
+            existing.kafkaTopic = details.kafkaTopic;
+            existing.kafkaKey = details.kafkaKey;
+            existing.kafkaGroupId = details.kafkaGroupId;
         }
     }
 
@@ -355,6 +374,10 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             existing.logs = status.logs;
             existing.beforeScript = status.beforeScript;
             existing.afterScript = status.afterScript;
+            existing.kafkaKeyType = status.kafkaKeyType;
+            existing.kafkaBodyType = status.kafkaBodyType;
+            existing.kafkaPartitions = status.kafkaPartitions;
+            existing.kafkaOffsetStrategy = status.kafkaOffsetStrategy;
         }
     }
 
@@ -487,6 +510,10 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             clone.target = details.target;
             clone.service = details.service;
             clone.grpcMethod = details.grpcMethod;
+            clone.kafkaBootstrapServers = details.kafkaBootstrapServers;
+            clone.kafkaTopic = details.kafkaTopic;
+            clone.kafkaKey = details.kafkaKey;
+            clone.kafkaGroupId = details.kafkaGroupId;
             copy.add(clone);
         }
         return copy;
@@ -510,6 +537,10 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             clone.logs = status.logs;
             clone.beforeScript = status.beforeScript;
             clone.afterScript = status.afterScript;
+            clone.kafkaKeyType = status.kafkaKeyType;
+            clone.kafkaBodyType = status.kafkaBodyType;
+            clone.kafkaPartitions = status.kafkaPartitions;
+            clone.kafkaOffsetStrategy = status.kafkaOffsetStrategy;
             copy.add(clone);
         }
         return copy;

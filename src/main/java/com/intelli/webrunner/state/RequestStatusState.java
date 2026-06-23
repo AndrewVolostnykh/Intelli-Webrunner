@@ -15,4 +15,8 @@ public class RequestStatusState {
     public String logs;
     public String beforeScript;
     public String afterScript;
+    public String kafkaKeyType;
+    public String kafkaBodyType;
+    public String kafkaPartitions;
+    public String kafkaOffsetStrategy;
 }

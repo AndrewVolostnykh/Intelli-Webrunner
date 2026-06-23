@@ -40,12 +40,16 @@ It is responsible for:
 
 - HTTP method selector.
 - URL or gRPC target fields.
+- Kafka producer and listener target fields.
 - Send button.
 - Send and download button.
 - Debug button.
 - Global Context icon button.
 - Body, params, headers, before-script, and after-script tabs.
 - Raw, form-data, and binary body modes.
+- Kafka send params such as key type, body type, and partition.
+- Kafka listen params such as offset strategy.
+- Kafka topic refresh, send, start listening, stop listening, and live response updates.
 - Editor-to-model synchronization.
 
 The Global Context button opens `GlobalContextDialog`.
@@ -135,6 +139,8 @@ Core model types include:
 
 - HTTP requests.
 - gRPC requests.
+- Kafka producer requests.
+- Kafka listener requests.
 - Chain requests.
 - Folders.
 - Headers.
@@ -142,6 +148,7 @@ Core model types include:
 - Form-data rows.
 - Binary request configuration.
 - Response data.
+- Kafka bootstrap servers, topic, key, group id, key/body types, partition, and offset strategy fields.
 
 These model objects are used by the request tree, editor panel, execution layer, import/export layer, and persistent state service.
 
@@ -155,6 +162,7 @@ It is responsible for:
 
 - Running HTTP requests.
 - Running gRPC requests.
+- Running Kafka producer requests.
 - Running chain requests.
 - Loading global context.
 - Running the global context script before request scripts.
@@ -167,6 +175,8 @@ It is responsible for:
 - Returning execution results to the UI.
 
 For chain execution, it shares one `vars` store across child requests while still using global context as the fallback placeholder source.
+
+Kafka producer execution follows the same before-script, placeholder resolution, transport call, after-script, and response persistence flow. It sends the resolved body, key, headers, optional partition, key type, and body type through `KafkaMessageProducer`, then returns Kafka metadata and the sent payload snapshot in the response body.
 
 ## HTTP Transport
 
@@ -204,6 +214,36 @@ It handles:
 - Metadata conversion.
 - Binary metadata with `-bin` keys and `base64:` values.
 - Response conversion back to displayable data.
+
+## Kafka Transport
+
+### `com.intelli.webrunner.kafka`
+
+The Kafka package keeps Kafka-specific behavior outside Swing UI code.
+
+`KafkaMetadataService` uses Kafka `AdminClient` to load topic names from the configured bootstrap servers.
+
+`KafkaMessageProducer` sends Kafka messages using `KafkaProducer<byte[], byte[]>`. It handles:
+
+- Bootstrap server validation.
+- Topic validation.
+- Optional partition selection.
+- Key encoding.
+- Body encoding.
+- Header encoding.
+- Kafka send metadata conversion.
+
+`KafkaSendRequest` is the transport input model for producer sends. It carries bootstrap servers, topic, key, key type, body, body type, partition, and headers.
+
+`KafkaSendResult` is the producer result model. It stores topic, partition, offset, timestamp, key bytes, value bytes, and header count.
+
+`KafkaListenerService` owns Kafka consumer sessions. It starts background polling, tracks active listener sessions by request id, stops consumers through `KafkaConsumer#wakeup`, and shuts down all listeners when the tool window is disposed.
+
+`KafkaListenRequest` is the input model for listener sessions. It carries bootstrap servers, topic, group id, and offset strategy.
+
+`KafkaListenMessage` is the display model for consumed records. It stores topic, partition, offset, timestamp, decoded key, decoded body, and decoded headers.
+
+Kafka listener responses are historical. New consumed messages are appended to the persisted response body for the listener request instead of replacing prior messages. If the user switches to another request while listening, polling continues and updates only the listener request state; the visible response panel is updated live only when that listener request is active.
 
 ## Scripting
 

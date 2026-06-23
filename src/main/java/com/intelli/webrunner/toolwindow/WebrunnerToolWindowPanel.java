@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intelli.webrunner.execution.HttpExecutor;
 import com.intelli.webrunner.execution.RequestExecutionService;
 import com.intelli.webrunner.grpc.GrpcExecutor;
+import com.intelli.webrunner.kafka.KafkaListenerService;
+import com.intelli.webrunner.kafka.KafkaMessageProducer;
+import com.intelli.webrunner.kafka.KafkaMetadataService;
 import com.intelli.webrunner.io.HttpFileCodec;
 import com.intelli.webrunner.io.HttpFileRequest;
 import com.intelli.webrunner.io.OpenApiCodec;
@@ -104,6 +107,9 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 	private final ScriptRuntime scriptRuntime = new ScriptRuntime();
 	private final HttpExecutor httpExecutor = new HttpExecutor();
 	private final GrpcExecutor grpcExecutor = new GrpcExecutor();
+	private final KafkaMetadataService kafkaMetadataService = new KafkaMetadataService();
+	private final KafkaMessageProducer kafkaMessageProducer = new KafkaMessageProducer();
+	private final KafkaListenerService kafkaListenerService = new KafkaListenerService();
 	private final RequestExecutionService executionService;
 
 	private final ResponseViewerPanel responseViewer;
@@ -117,7 +123,14 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		this.project = project;
 		this.stateService = GlobalWebrunnerStateService.getInstance();
 		this.executionService =
-			new RequestExecutionService(templateEngine, scriptRuntime, httpExecutor, grpcExecutor, stateService);
+			new RequestExecutionService(
+				templateEngine,
+				scriptRuntime,
+				httpExecutor,
+				grpcExecutor,
+				kafkaMessageProducer,
+				stateService
+			);
 		this.newFolderButton = new JButton("", AllIcons.Actions.NewFolder);
 		this.newRequestButton = new JButton("", Actions.AddFile);
 		this.moreButton = new JButton("⋮");
@@ -131,7 +144,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		this.responseViewer = new ResponseViewerPanel(project, this::saveCurrentEditors);
 		this.editor = new RequestEditorPanel(
 			project, stateService, executionService, responseViewer, scriptRuntime, templateEngine, httpExecutor,
-			grpcExecutor
+			grpcExecutor, kafkaMetadataService, kafkaListenerService
 		);
 		this.chainPanel = new ChainEditorPanel(project, stateService, executionService);
 		this.treePanel = new RequestTreePanel(stateService, chainPanel::refreshRequestsCombo);
@@ -147,6 +160,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 	@Override
 	public void dispose() {
 		editor.dispose();
+		kafkaListenerService.shutdown();
 	}
 
 	private void invokeLater(Runnable runnable) {
@@ -343,7 +357,8 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 			openResponseWindowButton.setEnabled(false);
 			return;
 		}
-		if (currentNode.requestType == RequestType.HTTP || currentNode.requestType == RequestType.GRPC) {
+		if (currentNode.requestType == RequestType.HTTP || currentNode.requestType == RequestType.GRPC
+			|| currentNode.requestType == RequestType.KAFKA || currentNode.requestType == RequestType.KAFKA_LISTEN) {
 			editor.load(currentNode);
 			editorCards.show(editorPanel, "request");
 			openRequestWindowButton.setEnabled(true);
@@ -1112,7 +1127,8 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		if (currentNode == null || currentNode.type != NodeType.REQUEST) {
 			return;
 		}
-		if (currentNode.requestType == RequestType.HTTP || currentNode.requestType == RequestType.GRPC) {
+		if (currentNode.requestType == RequestType.HTTP || currentNode.requestType == RequestType.GRPC
+			|| currentNode.requestType == RequestType.KAFKA || currentNode.requestType == RequestType.KAFKA_LISTEN) {
 			editor.saveActive();
 		} else if (currentNode.requestType == RequestType.CHAIN) {
 			chainPanel.save();
@@ -1140,6 +1156,10 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 					editor.executeHttp();
 				} else if (currentNode.requestType == RequestType.GRPC) {
 					editor.executeGrpc();
+				} else if (currentNode.requestType == RequestType.KAFKA) {
+					editor.executeKafka();
+				} else if (currentNode.requestType == RequestType.KAFKA_LISTEN) {
+					editor.toggleKafkaListeningFromShortcut();
 				} else if (currentNode.requestType == RequestType.CHAIN) {
 					chainPanel.triggerSend();
 				}
