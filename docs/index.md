@@ -1,6 +1,4 @@
-﻿Language: English | [Ukrainian](uk/index.md)
-
-# Intelli Webrunner Documentation
+﻿# Intelli Webrunner Documentation
 
 Welcome to the official documentation for Intelli Webrunner.
 

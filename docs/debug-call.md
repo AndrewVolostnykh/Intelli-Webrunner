@@ -1,6 +1,4 @@
-﻿Language: English | [Ukrainian](uk/debug-call.md)
-
-# Debug Call
+﻿# Debug Call
 
 Debug Call runs a request step by step and shows the state at each stage.
 

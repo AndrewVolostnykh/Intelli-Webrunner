@@ -1,12 +1,15 @@
 package com.intelli.webrunner.ui;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.intelli.webrunner.util.JsonTextOperations;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JTextArea;
 import javax.swing.JScrollPane;
 import java.awt.BorderLayout;
@@ -20,6 +23,7 @@ public final class JsonToolPanel {
 	private final JTextArea jsonField = new JTextArea();
 	private final JButton minifyButton = new JButton("Minify");
 	private final JButton beautifyButton = new JButton("Beautify");
+	private final JButton moreButton = new JButton("\u22EE");
 	private final JLabel statusLabel = new JLabel(" ");
 
 	public JsonToolPanel() {
@@ -42,12 +46,37 @@ public final class JsonToolPanel {
 		actions.add(statusLabel);
 		actions.add(minifyButton);
 		actions.add(beautifyButton);
+		actions.add(moreButton);
 		root.add(actions, BorderLayout.SOUTH);
 	}
 
 	private void attachActions() {
 		minifyButton.addActionListener(e -> format(false));
 		beautifyButton.addActionListener(e -> format(true));
+		moreButton.addActionListener(e -> showMoreMenu());
+	}
+
+	private void showMoreMenu() {
+		JPopupMenu menu = new JPopupMenu();
+		JMenuItem removeItem = new JMenuItem("Remove");
+		JMenuItem replaceItem = new JMenuItem("Replace");
+		removeItem.addActionListener(e -> JsonRemoveDialog.show(root, this::removeText));
+		replaceItem.addActionListener(e -> JsonReplaceDialog.show(root, this::replaceText));
+		menu.add(removeItem);
+		menu.add(replaceItem);
+		menu.show(moreButton, 0, moreButton.getHeight());
+	}
+
+	private void removeText(String value) {
+		jsonField.setText(JsonTextOperations.remove(jsonField.getText(), value));
+		jsonField.setCaretPosition(0);
+		statusLabel.setText(" ");
+	}
+
+	private void replaceText(String target, String replacement) {
+		jsonField.setText(JsonTextOperations.replace(jsonField.getText(), target, replacement));
+		jsonField.setCaretPosition(0);
+		statusLabel.setText(" ");
 	}
 
 	private void format(boolean beautify) {

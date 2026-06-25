@@ -1,6 +1,4 @@
-﻿Language: English | [Ukrainian](uk/grpc.md)
-
-# gRPC Requests
+﻿# gRPC Requests
 
 ## Top bar
 1. `Target` is the gRPC server address.

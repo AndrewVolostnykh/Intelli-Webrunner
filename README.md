@@ -12,10 +12,12 @@ Webrunner is an IntelliJ Platform plugin for creating, running, debugging, impor
 - Persist request data, scripts, variables, global context, and UI state between IDE sessions.
 - Import and export collections as Webrunner JSON.
 - Import requests from `.http` files.
+- Create HTTP requests by pasting cURL commands.
+- Copy saved HTTP requests as cURL commands.
 - Import and export OpenAPI documents with Webrunner metadata.
 - Generate request bodies from Java classes and `.proto` messages.
 - Format JSON request and response bodies.
-- Use Dev Tools for JWT decoding, Base64 conversion, JSON formatting, text comparison, and UUID generation.
+- Use Dev Tools for JWT decoding, Base64 conversion, JSON formatting and text transformations, text comparison, and UUID generation.
 - Open responses in separate editor windows.
 - Save binary responses to disk.
 
@@ -47,7 +49,7 @@ Available tools:
 
 - `JWT`: paste a JWT or `Bearer` token and inspect the decoded header, payload, and signature data.
 - `Base64`: decode Base64 into content or swap direction and encode content into Base64. Both input areas use soft wrap for long values.
-- `JSON`: paste JSON and use `Minify` to compact it or `Beautify` to format it with indentation. The editor uses soft wrap.
+- `JSON`: paste JSON and use `Minify` to compact it or `Beautify` to format it with indentation. The three-dot menu also provides `Remove` and `Replace` actions for literal text transformations across the editor contents.
 - `Compare`: paste left and right content, then open IntelliJ's Diff Viewer in a separate window to inspect differences.
 - `Generate UUID`: generate a random UUID and copy it to the clipboard.
 
@@ -67,6 +69,7 @@ HTTP requests support:
 - Normal send.
 - Send and download response to a file.
 - Debug call.
+- Copy the current request as a cURL command from the request action menu.
 
 The HTTP editor has tabs for:
 
@@ -81,6 +84,32 @@ Body modes include:
 - `Raw`
 - `Form Data`
 - `Binary`
+
+### cURL
+
+Use `Get cURL` from the HTTP request action menu next to the URL and run buttons to copy the current
+request to the clipboard. The generated command includes:
+
+- HTTP method and URL.
+- Enabled query parameters.
+- Enabled headers.
+- Raw request body.
+- Form-data text and file fields.
+- Binary file body.
+
+Use `Use cURL` from the three-dot menu above the request tree to create a new HTTP request from a
+cURL command. The input window accepts an optional request name and a multiline command. If the name
+is empty, Webrunner uses `<METHOD> <URL>`.
+
+Supported imported cURL data includes:
+
+- Explicit and inferred HTTP methods.
+- URL and query parameters.
+- Headers.
+- `-d`, `--data`, `--data-raw`, and related data options.
+- `-F`, `--form`, and `--form-string`.
+- Binary file bodies through `--data-binary @file`.
+- `--url` and `-G`/`--get`.
 
 ## gRPC Requests
 
@@ -507,6 +536,12 @@ OpenAPI export writes the current collection into an OpenAPI document and preser
 
 Global context is project-level state, so Webrunner JSON is the format that preserves it directly.
 
+### cURL Import and Export
+
+cURL import creates one HTTP request in the currently selected folder and opens it immediately.
+cURL export copies the current HTTP request without executing its before-request script or resolving
+runtime variables, so persisted placeholders remain visible in the generated command.
+
 ## Body Generation
 
 Webrunner can generate request bodies from code definitions.
@@ -567,6 +602,9 @@ Current test areas:
 - Bare JSON placeholder replacement.
 - Placeholder priority between `vars` and `globalContext`.
 - Missing placeholder behavior.
+- cURL command generation.
+- cURL command parsing.
+- JSON Remove and Replace transformations.
 
 Run tests with:
 

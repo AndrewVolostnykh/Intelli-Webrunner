@@ -23,6 +23,7 @@ import com.intelli.webrunner.state.NodeType;
 import com.intelli.webrunner.state.RequestDetailsState;
 import com.intelli.webrunner.state.RequestStatusState;
 import com.intelli.webrunner.state.RequestType;
+import com.intelli.webrunner.util.CurlCommandBuilder;
 import com.intelli.webrunner.util.PayloadTypes;
 import com.intelli.webrunner.util.TemplateEngine;
 import com.intelli.webrunner.util.UrlParamUtils;
@@ -67,6 +68,8 @@ import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.Toolkit;
+import java.awt.datatransfer.StringSelection;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.io.File;
@@ -541,26 +544,52 @@ public final class RequestEditorPanel {
 
 	private void showRequestMenu(JButton anchor) {
 		JPopupMenu menu = new JPopupMenu();
+		JMenuItem getCurlItem = new JMenuItem("Get cURL");
 		JMenuItem openRequestItem = new JMenuItem("Open Request");
 		JMenuItem openResponseItem = new JMenuItem("Open Response");
 		JMenuItem classBodyItem = new JMenuItem("Class body");
 		JMenuItem protoBodyItem = new JMenuItem("Proto body");
+		getCurlItem.addActionListener(e -> copyCurl());
 		openRequestItem.addActionListener(e -> openRequestWindow());
 		openResponseItem.addActionListener(e -> openResponseWindow());
 		classBodyItem.addActionListener(e -> generateBodyFromClass());
 		protoBodyItem.addActionListener(e -> generateBodyFromProto());
 		boolean enabled =
 			activeNode != null && activeNode.type == NodeType.REQUEST && activeNode.requestType != RequestType.CHAIN;
+		getCurlItem.setEnabled(enabled && activeNode.requestType == RequestType.HTTP);
 		openRequestItem.setEnabled(enabled);
 		openResponseItem.setEnabled(enabled);
 		classBodyItem.setEnabled(enabled);
 		protoBodyItem.setEnabled(enabled);
+		menu.add(getCurlItem);
+		menu.addSeparator();
 		menu.add(openRequestItem);
 		menu.add(openResponseItem);
 		menu.addSeparator();
 		menu.add(classBodyItem);
 		menu.add(protoBodyItem);
 		menu.show(anchor, 0, anchor.getHeight());
+	}
+
+	private void copyCurl() {
+		HttpExecutionContext context = prepareHttpExecution();
+		if (context == null) {
+			return;
+		}
+		String curl = CurlCommandBuilder.build(
+			context.method,
+			context.url,
+			context.headers,
+			context.params,
+			context.body,
+			context.payloadType,
+			context.formData,
+			context.binaryFilePath
+		);
+		Toolkit.getDefaultToolkit()
+			.getSystemClipboard()
+			.setContents(new StringSelection(curl), null);
+		responseViewer.showLog("cURL copied to clipboard.");
 	}
 
 	private JPanel buildHeadersPanel() {

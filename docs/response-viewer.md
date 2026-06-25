@@ -1,6 +1,4 @@
-﻿Language: English | [Ukrainian](uk/response-viewer.md)
-
-# Response Viewer
+﻿# Response Viewer
 
 After execution, the bottom panel updates.
 

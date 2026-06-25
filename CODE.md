@@ -51,8 +51,12 @@ It is responsible for:
 - Kafka listen params such as offset strategy.
 - Kafka topic refresh, send, start listening, stop listening, and live response updates.
 - Editor-to-model synchronization.
+- HTTP request action menu, including `Get cURL`.
 
 The Global Context button opens `GlobalContextDialog`.
+
+For HTTP requests, `Get cURL` reads the current editor state, generates a cURL command through
+`CurlCommandBuilder`, copies it to the system clipboard, and reports the result in the response log.
 
 ### `com.intelli.webrunner.ui.GlobalContextDialog`
 
@@ -102,6 +106,32 @@ Current Dev Tools entries include:
 ### `com.intelli.webrunner.ui.JsonToolPanel`
 
 `JsonToolPanel` provides a soft-wrapped JSON editor with Minify and Beautify actions backed by Jackson parsing and formatting.
+
+Its three-dot actions menu contains:
+
+- `Remove`, which opens `JsonRemoveDialog`.
+- `Replace`, which opens `JsonReplaceDialog`.
+
+Both actions apply literal text transformations to the current JSON editor contents through
+`JsonTextOperations`.
+
+### `com.intelli.webrunner.ui.JsonRemoveDialog`
+
+`JsonRemoveDialog` owns the separate Remove window and closes it after the operation is submitted.
+
+### `com.intelli.webrunner.ui.JsonRemovePanel`
+
+`JsonRemovePanel` contains the text input and Remove button used to remove all matching literal text
+from the JSON editor.
+
+### `com.intelli.webrunner.ui.JsonReplaceDialog`
+
+`JsonReplaceDialog` owns the separate Replace window and closes it after the operation is submitted.
+
+### `com.intelli.webrunner.ui.JsonReplacePanel`
+
+`JsonReplacePanel` contains the target and replacement inputs and the Replace button used to replace
+all matching literal text in the JSON editor.
 
 ### `com.intelli.webrunner.ui.CompareToolDialog`
 
@@ -406,6 +436,35 @@ Supported flows include:
 
 Webrunner JSON preserves request collections and global context. OpenAPI support maps request operations and Webrunner metadata, while global context remains project-level Webrunner state.
 
+### cURL import and export
+
+`WebrunnerToolWindowPanel` adds `Use cURL` to the request-tree three-dot menu. The action opens
+`CurlImportDialog`, parses the entered command, creates an HTTP request in the selected folder, and
+opens the created request. The dialog also accepts an optional request name; when it is empty, the
+generated name is `<METHOD> <URL>`.
+
+`RequestEditorPanel` adds `Get cURL` to the HTTP request action menu. It exports the current method,
+URL, enabled headers and parameters, and the selected raw, form-data, or binary body.
+
+### `com.intelli.webrunner.ui.CurlImportDialog`
+
+`CurlImportDialog` contains the optional request-name field and multiline cURL command input.
+
+### `com.intelli.webrunner.util.CurlCommandParser`
+
+`CurlCommandParser` tokenizes and parses common cURL commands, including multiline commands,
+single-quoted and double-quoted values, explicit methods, headers, query parameters, raw data,
+form-data, binary files, `--url`, and GET data.
+
+### `com.intelli.webrunner.util.CurlRequest`
+
+`CurlRequest` is the parsed cURL data model used to populate a newly created HTTP request.
+
+### `com.intelli.webrunner.util.CurlCommandBuilder`
+
+`CurlCommandBuilder` generates a shell-compatible cURL command from the current HTTP request. It
+supports raw bodies, form-data, binary files, enabled headers, and query parameters.
+
 ## Body Generation
 
 ### `com.intelli.webrunner.generator`
@@ -443,6 +502,8 @@ Utility classes provide shared helpers for:
 
 - Template replacement.
 - JSON formatting.
+- Literal JSON editor text removal and replacement through `JsonTextOperations`.
+- cURL command generation and parsing.
 - File handling.
 - Model conversion.
 - UI helpers.
@@ -461,6 +522,21 @@ Covers loading, parsing, executing, saving, and merging global context variables
 ### `src/test/java/com/intelli/webrunner/util/TemplateEngineTest.java`
 
 Covers placeholder replacement, escaped JSON string values, bare JSON placeholders, missing placeholder behavior, and variable priority scenarios.
+
+### `src/test/java/com/intelli/webrunner/util/CurlCommandBuilderTest.java`
+
+Covers cURL generation for raw requests, enabled headers, query parameters, form-data, binary files,
+default protocols, and shell quoting.
+
+### `src/test/java/com/intelli/webrunner/util/CurlCommandParserTest.java`
+
+Covers parsing browser-style multiline cURL commands, headers, explicit methods, query parameters,
+raw bodies, multipart form-data, binary files, and GET data.
+
+### `src/test/java/com/intelli/webrunner/util/JsonTextOperationsTest.java`
+
+Covers removing and replacing all literal text occurrences, empty targets, and null replacement
+values.
 
 ### `build.gradle`
 

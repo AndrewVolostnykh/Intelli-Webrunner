@@ -1,6 +1,4 @@
-﻿Language: English | [Ukrainian](uk/import-export.md)
-
-# Import and Export
+﻿# Import and Export
 
 ## Tree menu
 Right-click in the tree to access:

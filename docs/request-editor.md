@@ -1,6 +1,4 @@
-﻿Language: English | [Ukrainian](uk/request-editor.md)
-
-# Headers, Params, Body
+﻿# Headers, Params, Body
 
 The request editor has these tabs:
 1. `Body`

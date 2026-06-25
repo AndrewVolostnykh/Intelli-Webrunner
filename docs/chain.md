@@ -1,6 +1,4 @@
-﻿Language: English | [Ukrainian](uk/chain.md)
-
-# Chain Mode
+﻿# Chain Mode
 
 Chain Mode executes a list of requests sequentially with a shared `vars` store.
 

@@ -1,6 +1,4 @@
-﻿Language: English | [Ukrainian](uk/scripting.md)
-
-# Scripting
+﻿# Scripting
 
 Scripts run in JavaScript (Rhino) in two places: `Before Request` and `After Request`.
 Both stages share the same `vars` store and log list, so data can flow between them.

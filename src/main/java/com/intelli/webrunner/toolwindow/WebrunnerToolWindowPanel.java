@@ -23,6 +23,7 @@ import com.intelli.webrunner.state.WebrunnerState;
 import com.intelli.webrunner.ui.Base64ToolDialog;
 import com.intelli.webrunner.ui.ChainEditorPanel;
 import com.intelli.webrunner.ui.CompareToolDialog;
+import com.intelli.webrunner.ui.CurlImportDialog;
 import com.intelli.webrunner.ui.DateTimeToolDialog;
 import com.intelli.webrunner.ui.JsonToolDialog;
 import com.intelli.webrunner.ui.JwtDecoderDialog;
@@ -34,6 +35,8 @@ import com.intelli.webrunner.ui.UrlToolDialog;
 import com.intelli.webrunner.ui.UuidGeneratorDialog;
 import com.intelli.webrunner.ui.WebrunnerInfoDialog;
 import com.intelli.webrunner.util.ContentDispositionUtils;
+import com.intelli.webrunner.util.CurlCommandParser;
+import com.intelli.webrunner.util.CurlRequest;
 import com.intelli.webrunner.util.FileNameUtils;
 import com.intelli.webrunner.util.JsonUtils;
 import com.intelli.webrunner.util.StateCopyUtils;
@@ -262,6 +265,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 	private void showMoreMenu() {
 		JPopupMenu menu = new JPopupMenu();
 		JMenuItem refreshItem = new JMenuItem("Refresh");
+		JMenuItem useCurlItem = new JMenuItem("Use cURL");
 		JMenuItem classBodyItem = new JMenuItem("Class body");
 		JMenuItem protoBodyItem = new JMenuItem("Proto body");
 		JMenuItem importCollectionsItem = new JMenuItem("Import Collections (JSON)");
@@ -271,6 +275,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		JMenuItem settingsItem = new JMenuItem("Settings");
 		JMenuItem infoItem = new JMenuItem("Info");
 		refreshItem.addActionListener(e -> reloadTree());
+		useCurlItem.addActionListener(e -> useCurl());
 		importCollectionsItem.addActionListener(e -> importCollectionsJson());
 		exportCollectionsItem.addActionListener(e -> exportCollectionsJson());
 		importHttpItem.addActionListener(e -> importHttpFromChooser());
@@ -278,6 +283,8 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		settingsItem.addActionListener(e -> openSettingsDialog());
 		infoItem.addActionListener(e -> showInfoDialog());
 		menu.add(refreshItem);
+		menu.addSeparator();
+		menu.add(useCurlItem);
 		menu.addSeparator();
 		menu.add(importCollectionsItem);
 		menu.add(exportCollectionsItem);
@@ -288,6 +295,49 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		menu.add(settingsItem);
 		menu.add(infoItem);
 		menu.show(moreButton, 0, moreButton.getHeight());
+	}
+
+	private void useCurl() {
+		CurlImportDialog.Input input = CurlImportDialog.show(root);
+		if (input == null || input.command() == null || input.command().isBlank()) {
+			return;
+		}
+		try {
+			CurlRequest imported = CurlCommandParser.parse(input.command());
+			String parentId = treePanel.selectedFolderId();
+			String name = input.name() == null || input.name().isBlank()
+				? imported.method + " " + imported.url
+				: input.name().trim();
+			NodeState node = stateService.createRequest(name, RequestType.HTTP, parentId);
+
+			RequestDetailsState details = stateService.getRequestDetails(node.id);
+			details.method = imported.method;
+			details.url = imported.url;
+			details.payloadType = imported.payloadType;
+			stateService.saveRequestDetails(details);
+
+			RequestStatusState status = new RequestStatusState();
+			status.requestId = node.id;
+			status.requestBody = imported.body;
+			status.requestHeaders = imported.headers;
+			status.requestParams = imported.params;
+			status.formData = imported.formData;
+			status.binaryFilePath = imported.binaryFilePath;
+			status.responseBody = "";
+			status.responseHeaders = "";
+			status.logs = "";
+			status.beforeScript = "";
+			status.afterScript = "";
+			stateService.saveRequestStatus(status);
+			reloadTree(node.id);
+		} catch (IllegalArgumentException error) {
+			JOptionPane.showMessageDialog(
+				root,
+				error.getMessage(),
+				"Invalid cURL",
+				JOptionPane.ERROR_MESSAGE
+			);
+		}
 	}
 
 	private void showDevToolsMenu() {

@@ -1,6 +1,4 @@
-﻿Language: English | [Ukrainian](uk/quickstart.md)
-
-# Quickstart
+﻿# Quickstart
 
 This section helps you create and run your first request.
 

@@ -1,6 +1,4 @@
-﻿Language: English | [Ukrainian](uk/faq.md)
-
-# FAQ
+﻿# FAQ
 
 ## The request does not run
 1. Ensure URL or gRPC fields are filled in.
