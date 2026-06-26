@@ -3,6 +3,7 @@ package com.intelli.webrunner.ui;
 import com.intelli.webrunner.execution.DownloadResult;
 import com.intelli.webrunner.execution.ExecutionResult;
 import com.intelli.webrunner.util.ContentDispositionUtils;
+import com.intelli.webrunner.util.HttpStatusReasons;
 import com.intellij.json.JsonFileType;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
@@ -128,11 +129,7 @@ public final class ResponseViewerPanel {
 			responseStatusLabel.setForeground(result.statusCode >= 400 ? JBColor.RED : JBColor.GREEN);
 			responseTimeLabel.setForeground(responseStatusLabel.getForeground());
 			responseTimeLabel.setText(result.durationMillis >= 0 ? "Time: " + formatDuration(result.durationMillis) : "");
-			if (isGrpc) {
-				responseStatusLabel.setText("Status: " + result.statusCode + " " + result.statusMessage);
-			} else {
-				responseStatusLabel.setText("Status: " + result.statusCode);
-			}
+			responseStatusLabel.setText("Status: " + HttpStatusReasons.format(result.statusCode, result.statusMessage));
 			if (onResponsePersisted != null) {
 				onResponsePersisted.run();
 			}

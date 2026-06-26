@@ -47,6 +47,22 @@ public class ScriptRuntime {
                 }
             };
 
+            BaseFunction logAndReturnFn = new BaseFunction() {
+                @Override
+                public Object call(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
+                    if (args.length == 0) {
+                        context.log.log("null");
+                        return null;
+                    }
+                    if (args.length == 1) {
+                        context.log.log(formatLogValue(args[0], cx, scope));
+                        return args[0];
+                    }
+                    context.log.log(formatLogValue(args[0], cx, scope) + " " + formatLogValue(args[1], cx, scope));
+                    return args[1];
+                }
+            };
+
             BaseFunction assertFn = new BaseFunction() {
                 @Override
                 public Object call(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
@@ -64,6 +80,36 @@ public class ScriptRuntime {
                     return context.helpers.uuid();
                 }
             };
+            BaseFunction randomStringFn = helperFunction((cx1, scope1, args) ->
+                    context.helpers.randomString(toIntArg(args, 0, 0)));
+            BaseFunction randomEmailFn = helperFunction((cx1, scope1, args) -> context.helpers.randomEmail());
+            BaseFunction randomIsoDateFn = helperFunction((cx1, scope1, args) -> context.helpers.randomIsoDate());
+            BaseFunction randomRfcDateFn = helperFunction((cx1, scope1, args) -> context.helpers.randomRfcDate());
+            BaseFunction randomDateTimeFn = helperFunction((cx1, scope1, args) -> context.helpers.randomDateTime());
+            BaseFunction randomDateFn = helperFunction((cx1, scope1, args) -> context.helpers.randomDate());
+            BaseFunction randomTimeFn = helperFunction((cx1, scope1, args) -> context.helpers.randomTime());
+            BaseFunction randomMillilsDateFn = helperFunction((cx1, scope1, args) -> context.helpers.randomMillilsDate());
+            BaseFunction randomEpochSecondsDateFn =
+                    helperFunction((cx1, scope1, args) -> context.helpers.randomEpochSecondsDate());
+            BaseFunction currentIsoDateFn = helperFunction((cx1, scope1, args) -> context.helpers.currentIsoDate());
+            BaseFunction currentRfcDateFn = helperFunction((cx1, scope1, args) -> context.helpers.currentRfcDate());
+            BaseFunction currentDateTimeFn = helperFunction((cx1, scope1, args) -> context.helpers.currentDateTime());
+            BaseFunction currentDateFn = helperFunction((cx1, scope1, args) -> context.helpers.currentDate());
+            BaseFunction currentTimeFn = helperFunction((cx1, scope1, args) -> context.helpers.currentTime());
+            BaseFunction currentMillilsDateFn =
+                    helperFunction((cx1, scope1, args) -> context.helpers.currentMillilsDate());
+            BaseFunction currentEpochSecondsDateFn =
+                    helperFunction((cx1, scope1, args) -> context.helpers.currentEpochSecondsDate());
+            BaseFunction randomNumberFn = helperFunction((cx1, scope1, args) ->
+                    context.helpers.randomNumber(toIntArg(args, 0, 0), toIntArg(args, 1, 0)));
+            BaseFunction randomDoubleFn = helperFunction((cx1, scope1, args) -> {
+                double from = toDoubleArg(args, 0, 0);
+                double to = toDoubleArg(args, 1, 0);
+                if (args.length > 2 && !(args[2] == null || args[2] instanceof Undefined)) {
+                    return context.helpers.randomDouble(from, to, toIntArg(args, 2, 10));
+                }
+                return context.helpers.randomDouble(from, to);
+            });
 
             BaseFunction stringifyFn = new BaseFunction() {
                 @Override
@@ -119,12 +165,34 @@ public class ScriptRuntime {
             ScriptableObject.putProperty(contextObj, "vars", varsObj);
             ScriptableObject.putProperty(contextObj, "globalContext", globalContextObj);
             ScriptableObject.putProperty(contextObj, "log", logFn);
+            ScriptableObject.putProperty(contextObj, "logAndReturn", logAndReturnFn);
             ScriptableObject.putProperty(contextObj, "helpers", Context.javaToJS(context.helpers, scope));
             ScriptableObject.putProperty(contextObj, "request", requestObj);
             ScriptableObject.putProperty(contextObj, "rawRequest", rawRequestObj);
             ScriptableObject.putProperty(contextObj, "response", responseObj);
             ScriptableObject.putProperty(contextObj, "stringify", stringifyFn);
             ScriptableObject.putProperty(contextObj, "jsonify", jsonifyFn);
+            registerPredefinedFunctions(
+                    contextObj,
+                    randomStringFn,
+                    randomEmailFn,
+                    randomIsoDateFn,
+                    randomRfcDateFn,
+                    randomDateTimeFn,
+                    randomDateFn,
+                    randomTimeFn,
+                    randomMillilsDateFn,
+                    randomEpochSecondsDateFn,
+                    currentIsoDateFn,
+                    currentRfcDateFn,
+                    currentDateTimeFn,
+                    currentDateFn,
+                    currentTimeFn,
+                    currentMillilsDateFn,
+                    currentEpochSecondsDateFn,
+                    randomNumberFn,
+                    randomDoubleFn
+            );
 
             ScriptableObject.putProperty(scope, "vars", varsObj);
             ScriptableObject.putProperty(scope, "globalContext", globalContextObj);
@@ -133,16 +201,115 @@ public class ScriptRuntime {
             ScriptableObject.putProperty(scope, "response", responseObj);
             ScriptableObject.putProperty(scope, "context", contextObj);
             ScriptableObject.putProperty(scope, "log", logFn);
+            ScriptableObject.putProperty(scope, "logAndReturn", logAndReturnFn);
             ScriptableObject.putProperty(scope, "assert", assertFn);
             ScriptableObject.putProperty(scope, "uuid", uuidFn);
             ScriptableObject.putProperty(scope, "stringify", stringifyFn);
             ScriptableObject.putProperty(scope, "jsonify", jsonifyFn);
+            registerPredefinedFunctions(
+                    scope,
+                    randomStringFn,
+                    randomEmailFn,
+                    randomIsoDateFn,
+                    randomRfcDateFn,
+                    randomDateTimeFn,
+                    randomDateFn,
+                    randomTimeFn,
+                    randomMillilsDateFn,
+                    randomEpochSecondsDateFn,
+                    currentIsoDateFn,
+                    currentRfcDateFn,
+                    currentDateTimeFn,
+                    currentDateFn,
+                    currentTimeFn,
+                    currentMillilsDateFn,
+                    currentEpochSecondsDateFn,
+                    randomNumberFn,
+                    randomDoubleFn
+            );
 
             cx.evaluateString(scope, script, "user-script", 1, null);
             updateRequestFromScript(context, requestObj);
         } finally {
             Context.exit();
         }
+    }
+
+    private void registerPredefinedFunctions(
+            Scriptable target,
+            BaseFunction randomStringFn,
+            BaseFunction randomEmailFn,
+            BaseFunction randomIsoDateFn,
+            BaseFunction randomRfcDateFn,
+            BaseFunction randomDateTimeFn,
+            BaseFunction randomDateFn,
+            BaseFunction randomTimeFn,
+            BaseFunction randomMillilsDateFn,
+            BaseFunction randomEpochSecondsDateFn,
+            BaseFunction currentIsoDateFn,
+            BaseFunction currentRfcDateFn,
+            BaseFunction currentDateTimeFn,
+            BaseFunction currentDateFn,
+            BaseFunction currentTimeFn,
+            BaseFunction currentMillilsDateFn,
+            BaseFunction currentEpochSecondsDateFn,
+            BaseFunction randomNumberFn,
+            BaseFunction randomDoubleFn
+    ) {
+        ScriptableObject.putProperty(target, "randomString", randomStringFn);
+        ScriptableObject.putProperty(target, "randomEmail", randomEmailFn);
+        ScriptableObject.putProperty(target, "randomIsoDate", randomIsoDateFn);
+        ScriptableObject.putProperty(target, "randomRfcDate", randomRfcDateFn);
+        ScriptableObject.putProperty(target, "randomDateTime", randomDateTimeFn);
+        ScriptableObject.putProperty(target, "randomDate", randomDateFn);
+        ScriptableObject.putProperty(target, "randomTime", randomTimeFn);
+        ScriptableObject.putProperty(target, "randomMillilsDate", randomMillilsDateFn);
+        ScriptableObject.putProperty(target, "randomEpochSecondsDate", randomEpochSecondsDateFn);
+        ScriptableObject.putProperty(target, "currentIsoDate", currentIsoDateFn);
+        ScriptableObject.putProperty(target, "currentRfcDate", currentRfcDateFn);
+        ScriptableObject.putProperty(target, "currentDateTime", currentDateTimeFn);
+        ScriptableObject.putProperty(target, "currentDate", currentDateFn);
+        ScriptableObject.putProperty(target, "currentTime", currentTimeFn);
+        ScriptableObject.putProperty(target, "currentMillilsDate", currentMillilsDateFn);
+        ScriptableObject.putProperty(target, "currentEpochSecondsDate", currentEpochSecondsDateFn);
+        ScriptableObject.putProperty(target, "randomNumber", randomNumberFn);
+        ScriptableObject.putProperty(target, "randomDouble", randomDoubleFn);
+    }
+
+    private BaseFunction helperFunction(PredefinedFunction function) {
+        return new BaseFunction() {
+            @Override
+            public Object call(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
+                return function.call(cx, scope, args);
+            }
+        };
+    }
+
+    private int toIntArg(Object[] args, int index, int defaultValue) {
+        if (args.length <= index || args[index] == null || args[index] instanceof Undefined) {
+            return defaultValue;
+        }
+        Object value = Context.jsToJava(args[index], Object.class);
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        return Integer.parseInt(String.valueOf(value));
+    }
+
+    private double toDoubleArg(Object[] args, int index, double defaultValue) {
+        if (args.length <= index || args[index] == null || args[index] instanceof Undefined) {
+            return defaultValue;
+        }
+        Object value = Context.jsToJava(args[index], Object.class);
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        return Double.parseDouble(String.valueOf(value));
+    }
+
+    @FunctionalInterface
+    private interface PredefinedFunction {
+        Object call(Context cx, Scriptable scope, Object[] args);
     }
 
     private Scriptable buildScriptRequest(ScriptRequest request, Context cx, Scriptable scope) {

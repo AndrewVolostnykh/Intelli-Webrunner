@@ -79,9 +79,13 @@ Current Dev Tools entries include:
 
 - JWT
 - Base64
+- URL
 - JSON
+- Text
+- Hash
 - Compare
 - Generate UUID
+- DateTime
 
 ### `com.intelli.webrunner.ui.JwtDecoderDialog`
 
@@ -89,7 +93,9 @@ Current Dev Tools entries include:
 
 ### `com.intelli.webrunner.ui.JwtDecoderPanel`
 
-`JwtDecoderPanel` provides the JWT decoder UI. It accepts a JWT or `Bearer` token and displays decoded header and payload JSON.
+`JwtDecoderPanel` provides the JWT decoder UI. It accepts a soft-wrapped JWT or `Bearer` token, displays expiry derived from the standard `exp` claim, and lets users edit decoded JSON before re-signing HMAC JWTs with a secret.
+
+`com.intelli.webrunner.util.JwtTokenService` decodes JWT header/payload JSON, evaluates `exp`, and creates signatures for `HS256`, `HS384`, and `HS512` tokens.
 
 ### `com.intelli.webrunner.ui.Base64ToolDialog`
 
@@ -133,6 +139,28 @@ from the JSON editor.
 `JsonReplacePanel` contains the target and replacement inputs and the Replace button used to replace
 all matching literal text in the JSON editor.
 
+### `com.intelli.webrunner.ui.TextToolDialog`
+
+`TextToolDialog` opens the plain-text utility window.
+
+### `com.intelli.webrunner.ui.TextToolPanel`
+
+`TextToolPanel` provides a soft-wrapped text editor with whitespace minification, period-based
+line-break formatting, and literal Remove and Replace actions.
+
+### `com.intelli.webrunner.ui.HashToolDialog`
+
+`HashToolDialog` opens the Hash utility window.
+
+### `com.intelli.webrunner.ui.HashToolPanel`
+
+`HashToolPanel` provides two soft-wrapped text areas for input and hash output, a hash algorithm
+selector, an optional HMAC secret input, and a Hash action.
+
+`com.intelli.webrunner.util.HashingService` hashes UTF-8 text with standard JDK `MessageDigest`
+algorithms or, when a non-empty secret is provided, with the matching `javax.crypto.Mac` HMAC
+algorithm.
+
 ### `com.intelli.webrunner.ui.CompareToolDialog`
 
 `CompareToolDialog` opens the Compare utility input window.
@@ -158,6 +186,8 @@ all matching literal text in the JSON editor.
 `ResponseWindowManager` opens responses in separate IDE windows.
 
 Response UI classes receive execution results from `RequestExecutionService` or debug sessions and render them for the user.
+HTTP status labels use `HttpStatusReasons` to render standard reason phrases, such as `200 - OK`,
+when Java's HTTP client only provides the numeric status code.
 
 ## Request Models
 
@@ -290,10 +320,29 @@ It exposes these globals to scripts:
 - `response`
 - `context`
 - `log`
+- `logAndReturn`
 - `assert`
 - `uuid`
 - `stringify`
 - `jsonify`
+- `randomString`
+- `randomEmail`
+- `randomIsoDate`
+- `randomRfcDate`
+- `randomDateTime`
+- `randomDate`
+- `randomTime`
+- `randomMillilsDate`
+- `randomEpochSecondsDate`
+- `currentIsoDate`
+- `currentRfcDate`
+- `currentDateTime`
+- `currentDate`
+- `currentTime`
+- `currentMillilsDate`
+- `currentEpochSecondsDate`
+- `randomNumber`
+- `randomDouble`
 
 It is used by normal execution and debug execution for before-request, after-response, and inline debug scripts.
 
@@ -349,6 +398,7 @@ It supports:
 
 - String placeholders.
 - Bare JSON placeholders.
+- Whitelisted predefined function placeholders such as `{{uuid()}}`.
 - JSON string escaping.
 - JSON literal preservation for numbers, booleans, arrays, objects, and null.
 - Missing bare JSON placeholder replacement with `null`.
@@ -467,14 +517,9 @@ supports raw bodies, form-data, binary files, enabled headers, and query paramet
 
 ## Body Generation
 
-### `com.intelli.webrunner.generator`
+### `com.intelli.webrunner.proto`
 
-Body generator classes create sample request bodies from source definitions.
-
-Supported generation areas include:
-
-- Java class body generation.
-- `.proto` message body generation.
+Proto body generator classes create sample request bodies from `.proto` message definitions.
 
 Generated bodies are inserted into the request editor and can then be edited manually.
 
@@ -503,6 +548,7 @@ Utility classes provide shared helpers for:
 - Template replacement.
 - JSON formatting.
 - Literal JSON editor text removal and replacement through `JsonTextOperations`.
+- Plain-text whitespace and period formatting through `TextFormatting`.
 - cURL command generation and parsing.
 - File handling.
 - Model conversion.

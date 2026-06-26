@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TemplateEngineTest {
 
@@ -103,6 +104,35 @@ class TemplateEngineTest {
 		assertEquals("file-7", formEntry.name);
 		assertEquals("C:/tmp/report.txt", formEntry.value);
 		assertEquals("path/abc", engine.applyToText("path/{{token}}", Map.of("token", "abc")));
+	}
+
+	@Test
+	void supportsPredefinedFunctionsInJsonPayloadPlaceholders() {
+		String result = engine.applyToBody(
+			"{\"id\":\"{{uuid()}}\",\"name\":{{randomString(8)}},\"count\":{{randomNumber(3,5)}},\"price\":{{randomDouble(1.5,1.5,3)}}}",
+			Map.of()
+		);
+
+		try {
+			JsonNode json = mapper.readTree(result);
+			assertTrue(json.get("id").asText().matches("[0-9a-f-]{36}"));
+			assertTrue(json.get("name").asText().matches("[A-Za-z0-9]{8}"));
+			assertTrue(json.get("count").asInt() >= 3);
+			assertTrue(json.get("count").asInt() <= 5);
+			assertEquals("1.500", json.get("price").asText());
+		} catch (Exception error) {
+			throw new AssertionError(error);
+		}
+	}
+
+	@Test
+	void supportsPredefinedFunctionsInTextInterpolation() {
+		String result = engine.applyToText(
+			"request-{{randomString(6)}}-{{randomDouble(2.0,2.0)}}",
+			Map.of()
+		);
+
+		assertTrue(result.matches("request-[A-Za-z0-9]{6}-2\\.0000000000"));
 	}
 
 	private HeaderEntryState header(String name, String value) {

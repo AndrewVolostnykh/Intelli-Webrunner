@@ -18,6 +18,7 @@ import com.intelli.webrunner.state.NodeState;
 import com.intelli.webrunner.state.RequestDetailsState;
 import com.intelli.webrunner.state.RequestStatusState;
 import com.intelli.webrunner.state.RequestType;
+import com.intelli.webrunner.util.HttpStatusReasons;
 import com.intelli.webrunner.util.JsonUtils;
 import com.intelli.webrunner.util.PayloadTypes;
 import com.intelli.webrunner.util.StateCopyUtils;
@@ -472,10 +473,10 @@ public final class DebugCallSession {
 		if (requestFailed) {
 			lines.add("Request failed. No response received.");
 		} else if (requestType == RequestType.HTTP && httpResponse != null) {
-			lines.add("Status: " + httpResponse.statusCode);
+			lines.add("Status: " + HttpStatusReasons.format(httpResponse.statusCode, ""));
 			lines.addAll(formatResponseSnapshot(httpResponse.body, httpResponse.headers));
 		} else if (requestType == RequestType.GRPC && grpcResponse != null) {
-			lines.add("Status: " + grpcResponse.statusCode + " " + safe(grpcResponse.statusMessage));
+			lines.add("Status: " + HttpStatusReasons.format(grpcResponse.statusCode, safe(grpcResponse.statusMessage)));
 			lines.addAll(formatResponseSnapshot(grpcResponse.body, grpcResponse.headers));
 		} else {
 			lines.add("No response received.");

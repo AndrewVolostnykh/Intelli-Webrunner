@@ -201,8 +201,9 @@ URL: https://{{host}}/users/{{userId}}
 Authorization: Bearer {{accessToken}}
 ```
 
-`vars` values override `globalContext` values. Missing placeholders inside JSON strings remain
-unchanged; missing bare JSON placeholders become `null`.
+`vars` values override `globalContext` values. Placeholders can also call whitelisted predefined
+functions, for example `{{uuid()}}` or `{{randomString(10)}}`. Missing placeholders inside JSON
+strings remain unchanged; missing bare JSON placeholders become `null`.
 
 See [Scripting](scripting.md) for the full variable and helper API.
 
@@ -383,12 +384,10 @@ The HTTP request menu contains:
 - `Get cURL`
 - `Open Request`
 - `Open Response`
-- `Class body`
 - `Proto body`
 
 Open Request opens Body, Before Request, and After Request in a separate window. Open Response opens
-the response separately. Class body and Proto body generate sample bodies from Java or Protobuf
-definitions.
+the response separately. Proto body generates sample bodies from Protobuf definitions.
 
 ## Formatting
 

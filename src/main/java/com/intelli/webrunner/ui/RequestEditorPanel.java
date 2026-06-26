@@ -547,26 +547,22 @@ public final class RequestEditorPanel {
 		JMenuItem getCurlItem = new JMenuItem("Get cURL");
 		JMenuItem openRequestItem = new JMenuItem("Open Request");
 		JMenuItem openResponseItem = new JMenuItem("Open Response");
-		JMenuItem classBodyItem = new JMenuItem("Class body");
 		JMenuItem protoBodyItem = new JMenuItem("Proto body");
 		getCurlItem.addActionListener(e -> copyCurl());
 		openRequestItem.addActionListener(e -> openRequestWindow());
 		openResponseItem.addActionListener(e -> openResponseWindow());
-		classBodyItem.addActionListener(e -> generateBodyFromClass());
 		protoBodyItem.addActionListener(e -> generateBodyFromProto());
 		boolean enabled =
 			activeNode != null && activeNode.type == NodeType.REQUEST && activeNode.requestType != RequestType.CHAIN;
 		getCurlItem.setEnabled(enabled && activeNode.requestType == RequestType.HTTP);
 		openRequestItem.setEnabled(enabled);
 		openResponseItem.setEnabled(enabled);
-		classBodyItem.setEnabled(enabled);
 		protoBodyItem.setEnabled(enabled);
 		menu.add(getCurlItem);
 		menu.addSeparator();
 		menu.add(openRequestItem);
 		menu.add(openResponseItem);
 		menu.addSeparator();
-		menu.add(classBodyItem);
 		menu.add(protoBodyItem);
 		menu.show(anchor, 0, anchor.getHeight());
 	}
@@ -1742,13 +1738,6 @@ public final class RequestEditorPanel {
 	}
 
 	// ---- body generation ----
-
-	private void generateBodyFromClass() {
-		if (!hasEditableRequest()) {
-			return;
-		}
-		bodyGenerator.generateFromClass();
-	}
 
 	private void generateBodyFromProto() {
 		if (!hasEditableRequest()) {

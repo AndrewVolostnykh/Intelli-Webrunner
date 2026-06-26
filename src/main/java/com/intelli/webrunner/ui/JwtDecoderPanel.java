@@ -1,127 +1,107 @@
 package com.intelli.webrunner.ui;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.intellij.openapi.editor.event.DocumentEvent;
-import com.intellij.openapi.editor.event.DocumentListener;
-import com.intellij.openapi.editor.colors.EditorColorsManager;
-import com.intellij.openapi.editor.colors.EditorColorsScheme;
-import com.intellij.openapi.fileTypes.FileType;
-import com.intellij.openapi.fileTypes.FileTypeManager;
-import com.intellij.openapi.fileTypes.PlainTextFileType;
+import com.intelli.webrunner.util.JwtTokenService;
 import com.intellij.openapi.project.Project;
-import com.intellij.ui.EditorTextField;
 import com.intellij.ui.components.JBScrollPane;
 
+import javax.swing.BorderFactory;
+import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JPasswordField;
 import javax.swing.JSplitPane;
+import javax.swing.JTextArea;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import java.awt.BorderLayout;
-import java.awt.Color;
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.awt.Font;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
 
 public final class JwtDecoderPanel {
-	private static final ObjectMapper MAPPER = new ObjectMapper();
+    private final JPanel root = new JPanel(new BorderLayout(0, 8));
+    private final JLabel expiryLabel = new JLabel("Not exp field");
+    private final JTextArea jwtField = createTextArea();
+    private final JTextArea decodedField = createTextArea();
+    private final JPasswordField secretField = new JPasswordField();
+    private final JButton updateButton = new JButton("Update");
 
-	private final JPanel root = new JPanel(new BorderLayout());
-	private final EditorTextField jwtField;
-	private final EditorTextField decodedField;
+    public JwtDecoderPanel(Project project) {
+        buildUi();
+        attachListeners();
+    }
 
-	public JwtDecoderPanel(Project project) {
-		this.jwtField = createTextField(project, PlainTextFileType.INSTANCE);
-		this.decodedField = createTextField(project, resolveJsonFileType());
-		this.decodedField.setViewer(true);
-		this.decodedField.setForeground(resolveReadableForeground());
-		buildUi();
-		attachListener();
-	}
+    public JComponent getComponent() {
+        return root;
+    }
 
-	public JComponent getComponent() {
-		return root;
-	}
+    private void buildUi() {
+        root.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+        root.add(expiryLabel, BorderLayout.NORTH);
 
-	private void buildUi() {
-		JPanel inputPanel = new JPanel(new BorderLayout());
-		inputPanel.add(new JLabel("JWT"), BorderLayout.NORTH);
-		inputPanel.add(new JBScrollPane(jwtField), BorderLayout.CENTER);
+        JPanel inputPanel = new JPanel(new BorderLayout());
+        inputPanel.add(new JLabel("JWT"), BorderLayout.NORTH);
+        inputPanel.add(new JBScrollPane(jwtField), BorderLayout.CENTER);
 
-		JPanel outputPanel = new JPanel(new BorderLayout());
-		outputPanel.add(new JLabel("Decoded JSON"), BorderLayout.NORTH);
-		outputPanel.add(new JBScrollPane(decodedField), BorderLayout.CENTER);
+        JPanel outputPanel = new JPanel(new BorderLayout());
+        outputPanel.add(new JLabel("Decoded JSON"), BorderLayout.NORTH);
+        outputPanel.add(new JBScrollPane(decodedField), BorderLayout.CENTER);
 
-		JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, inputPanel, outputPanel);
-		splitPane.setResizeWeight(0.5);
-		root.add(splitPane, BorderLayout.CENTER);
-	}
+        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, inputPanel, outputPanel);
+        splitPane.setResizeWeight(0.5);
+        root.add(splitPane, BorderLayout.CENTER);
+        root.add(createSigningPanel(), BorderLayout.SOUTH);
+    }
 
-	private void attachListener() {
-		jwtField.getDocument().addDocumentListener(new DocumentListener() {
-			@Override
-			public void documentChanged(DocumentEvent event) {
-				updateDecoded();
-			}
-		});
-	}
+    private JPanel createSigningPanel() {
+        JPanel panel = new JPanel(new GridBagLayout());
+        GridBagConstraints label = new GridBagConstraints();
+        label.gridx = 0;
+        label.insets = new Insets(0, 0, 0, 8);
+        panel.add(new JLabel("Secret"), label);
 
-	private void updateDecoded() {
-		decodedField.setText(decode(jwtField.getText()));
-	}
+        GridBagConstraints field = new GridBagConstraints();
+        field.gridx = 1;
+        field.weightx = 1;
+        field.fill = GridBagConstraints.HORIZONTAL;
+        field.insets = new Insets(0, 0, 0, 8);
+        panel.add(secretField, field);
 
-	private static EditorTextField createTextField(Project project, FileType fileType) {
-		EditorTextField field = new EditorTextField("", project, fileType);
-		field.setOneLineMode(false);
-		return field;
-	}
+        GridBagConstraints button = new GridBagConstraints();
+        button.gridx = 2;
+        panel.add(updateButton, button);
+        return panel;
+    }
 
-	private static String decode(String value) {
-		String token = normalizeToken(value);
-		if (token.isBlank()) {
-			return "";
-		}
-		String[] parts = token.split("\\.", -1);
-		if (parts.length < 2) {
-			return "Invalid JWT: expected at least header and payload parts.";
-		}
-		try {
-			Map<String, Object> decoded = new LinkedHashMap<>();
-			decoded.put("header", decodeJsonPart(parts[0]));
-			decoded.put("payload", decodeJsonPart(parts[1]));
-			if (parts.length > 2 && !parts[2].isBlank()) {
-				decoded.put("signature", parts[2]);
-			}
-			return MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(decoded);
-		} catch (Exception e) {
-			return "Invalid JWT: " + e.getMessage();
-		}
-	}
+    private void attachListeners() {
+        jwtField.getDocument().addDocumentListener(new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent event) { updateDecoded(); }
+            @Override public void removeUpdate(DocumentEvent event) { updateDecoded(); }
+            @Override public void changedUpdate(DocumentEvent event) { updateDecoded(); }
+        });
+        updateButton.addActionListener(event -> updateToken());
+    }
 
-	private static String normalizeToken(String value) {
-		String token = value == null ? "" : value.trim();
-		if (token.regionMatches(true, 0, "Bearer", 0, "Bearer".length())) {
-			token = token.substring("Bearer".length()).trim();
-		}
-		return token;
-	}
+    private void updateDecoded() {
+        decodedField.setText(JwtTokenService.decode(jwtField.getText()));
+        expiryLabel.setText(JwtTokenService.expiryStatus(jwtField.getText()));
+    }
 
-	private static Object decodeJsonPart(String part) throws Exception {
-		String json = new String(Base64.getUrlDecoder().decode(part), StandardCharsets.UTF_8);
-		return MAPPER.readValue(json, Object.class);
-	}
+    private void updateToken() {
+        try {
+            jwtField.setText(JwtTokenService.update(decodedField.getText(), new String(secretField.getPassword())));
+        } catch (Exception e) {
+            decodedField.setText("Unable to update JWT: " + e.getMessage());
+        }
+    }
 
-	private static FileType resolveJsonFileType() {
-		FileType fileType = FileTypeManager.getInstance().getFileTypeByExtension("json");
-		if (fileType == null || fileType == PlainTextFileType.INSTANCE) {
-			fileType = PlainTextFileType.INSTANCE;
-		}
-		return fileType;
-	}
-
-	private static Color resolveReadableForeground() {
-		EditorColorsScheme scheme = EditorColorsManager.getInstance().getGlobalScheme();
-		Color foreground = scheme.getDefaultForeground();
-		return foreground == null ? Color.WHITE : foreground;
-	}
+    private static JTextArea createTextArea() {
+        JTextArea field = new JTextArea();
+        field.setLineWrap(true);
+        field.setWrapStyleWord(false);
+        field.setFont(new Font(Font.MONOSPACED, Font.PLAIN, field.getFont().getSize()));
+        return field;
+    }
 }

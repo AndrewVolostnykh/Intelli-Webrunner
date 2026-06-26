@@ -17,6 +17,7 @@ import com.intelli.webrunner.state.GlobalWebrunnerStateService;
 import com.intelli.webrunner.state.HeaderEntryState;
 import com.intelli.webrunner.state.RequestDetailsState;
 import com.intelli.webrunner.util.JsonUtils;
+import com.intelli.webrunner.util.HttpStatusReasons;
 import com.intelli.webrunner.util.PayloadTypes;
 import com.intelli.webrunner.util.StateCopyUtils;
 import com.intelli.webrunner.util.TemplateEngine;
@@ -151,7 +152,7 @@ public final class RequestExecutionService {
 			String responseHeaders = JsonUtils.toJson(response.headers);
 			return withDuration(new ExecutionResult(
 				response.statusCode,
-				"",
+				HttpStatusReasons.reason(response.statusCode),
 				JsonUtils.prettyPrint(response.body),
 				responseHeaders,
 				String.join("\n", logs)
@@ -255,7 +256,7 @@ public final class RequestExecutionService {
 			String responseHeaders = JsonUtils.toJson(response.headers);
 			ExecutionResult result = withDuration(new ExecutionResult(
 				response.statusCode,
-				"",
+				HttpStatusReasons.reason(response.statusCode),
 				JsonUtils.prettyPrint(response.body),
 				responseHeaders,
 				String.join("\n", logs)

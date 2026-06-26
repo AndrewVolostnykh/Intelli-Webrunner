@@ -162,6 +162,86 @@ class ScriptRuntimeTest {
 	}
 
 	@Test
+	void predefinedRandomAndDateFunctionsAreAvailable() {
+		List<String> logs = new ArrayList<>();
+
+		runtime.runScript(
+			"""
+				var value = {
+					randomStringLength: randomString(12).length,
+					randomEmail: randomEmail(),
+					randomIsoDate: randomIsoDate(),
+					randomRfcDate: randomRfcDate(),
+					randomDateTime: randomDateTime(),
+					randomDate: randomDate(),
+					randomTime: randomTime(),
+					randomMillilsDate: randomMillilsDate(),
+					randomEpochSecondsDate: randomEpochSecondsDate(),
+					currentIsoDate: currentIsoDate(),
+					currentRfcDate: currentRfcDate(),
+					currentDateTime: currentDateTime(),
+					currentDate: currentDate(),
+					currentTime: currentTime(),
+					currentMillilsDate: currentMillilsDate(),
+					currentEpochSecondsDate: currentEpochSecondsDate(),
+					randomNumber: randomNumber(3, 5),
+					contextRandomNumber: context.randomNumber(3, 5),
+					randomDoubleDefault: randomDouble(1.5, 1.5),
+					randomDoubleCustom: randomDouble(1.5, 1.5, 3),
+					contextRandomDoubleCustom: context.randomDouble(1.5, 1.5, 2)
+				};
+				log(stringify(value));
+				""",
+			context(new VarsStore(), request(""), request(""), null, logs)
+		);
+
+		String result = logs.get(0);
+		assertTrue(result.contains("\"randomStringLength\":12"));
+		assertTrue(result.matches(".*\"randomEmail\":\"[a-z0-9]{10}@[a-z0-9]{8}\\.com\".*"));
+		assertTrue(result.matches(".*\"randomIsoDate\":\"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z\".*"));
+		assertTrue(result.matches(".*\"randomRfcDate\":\"[^\"]+ GMT\".*"));
+		assertTrue(result.matches(".*\"randomDateTime\":\"\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3}\".*"));
+		assertTrue(result.matches(".*\"randomDate\":\"\\d{4}-\\d{2}-\\d{2}\".*"));
+		assertTrue(result.matches(".*\"randomTime\":\"\\d{2}:\\d{2}:\\d{2}\\.\\d{3}\".*"));
+		assertTrue(result.matches(".*\"randomMillilsDate\":\\d+.*"));
+		assertTrue(result.matches(".*\"randomEpochSecondsDate\":\\d+.*"));
+		assertTrue(result.matches(".*\"currentIsoDate\":\"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z\".*"));
+		assertTrue(result.matches(".*\"currentRfcDate\":\"[^\"]+ GMT\".*"));
+		assertTrue(result.matches(".*\"currentDateTime\":\"\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3}\".*"));
+		assertTrue(result.matches(".*\"currentDate\":\"\\d{4}-\\d{2}-\\d{2}\".*"));
+		assertTrue(result.matches(".*\"currentTime\":\"\\d{2}:\\d{2}:\\d{2}\\.\\d{3}\".*"));
+		assertTrue(result.matches(".*\"currentMillilsDate\":\\d+.*"));
+		assertTrue(result.matches(".*\"currentEpochSecondsDate\":\\d+.*"));
+		assertTrue(result.matches(".*\"randomNumber\":[3-5].*"));
+		assertTrue(result.matches(".*\"contextRandomNumber\":[3-5].*"));
+		assertTrue(result.contains("\"randomDoubleDefault\":\"1.5000000000\""));
+		assertTrue(result.contains("\"randomDoubleCustom\":\"1.500\""));
+		assertTrue(result.contains("\"contextRandomDoubleCustom\":\"1.50\""));
+	}
+
+	@Test
+	void logAndReturnLogsValueAndReturnsOnlyValue() {
+		List<String> logs = new ArrayList<>();
+		VarsStore vars = new VarsStore();
+
+		runtime.runScript(
+			"""
+				vars.set('first', logAndReturn('abc'));
+				vars.set('second', logAndReturn('token', 42));
+				vars.set('third', context.logAndReturn('payload', { ok: true }));
+				""",
+			context(vars, request(""), request(""), null, logs)
+		);
+
+		assertEquals("abc", vars.get("first"));
+		assertEquals(42.0, vars.get("second"));
+		assertEquals(Map.of("ok", true), vars.get("third"));
+		assertEquals("abc", logs.get(0));
+		assertEquals("token 42.0", logs.get(1));
+		assertEquals("payload {\"ok\":true}", logs.get(2));
+	}
+
+	@Test
 	void undefinedHeaderParamAndFormValuesNormalizeToEmptyStrings() {
 		ScriptRequest request = request("");
 

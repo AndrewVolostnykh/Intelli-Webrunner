@@ -189,8 +189,15 @@ public final class WebrunnerInfoDialog {
 
 			Глобальні функції:
 			- log(...args): запис у Logs. Приймає кілька аргументів.
+			- logAndReturn(value), logAndReturn(message, value): пише в Logs і повертає тільки value.
 			- assert(actual, expected, message): проста перевірка, пише в лог при невідповідності.
 			- uuid(): повертає випадковий UUID.
+			- randomString(size), randomEmail(), randomNumber(from, to).
+			- randomDouble(from, to), randomDouble(from, to, afterComma).
+			- randomIsoDate(), randomRfcDate(), randomDateTime(), randomDate(), randomTime().
+			- randomMillilsDate(), randomEpochSecondsDate().
+			- currentIsoDate(), currentRfcDate(), currentDateTime(), currentDate(), currentTime().
+			- currentMillilsDate(), currentEpochSecondsDate().
 
 			Глобальні об'єкти:
 			- vars: VarsStore для збереження значень між запитами.

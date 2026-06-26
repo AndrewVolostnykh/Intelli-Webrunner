@@ -1,17 +1,13 @@
 package com.intelli.webrunner.ui;
 
-import com.intelli.webrunner.body.ClassBodyGenerator;
 import com.intelli.webrunner.proto.ProtoBodyGenerator;
 import com.intelli.webrunner.proto.ProtoMessageSelection;
 import com.intelli.webrunner.util.JsonUtils;
-import com.intellij.ide.util.TreeClassChooser;
-import com.intellij.ide.util.TreeClassChooserFactory;
 import com.intellij.openapi.fileChooser.FileChooser;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiClass;
 import com.intellij.ui.EditorTextField;
 import com.intellij.ui.ListSpeedSearch;
 import com.intellij.ui.components.JBList;
@@ -34,8 +30,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * "Class body" / "Proto body" generation actions: prompt for options, pick a Java class or a
- * {@code .proto} message, and fill the request body field with a sample JSON document.
+ * Proto body generation action: prompt for options, pick a {@code .proto} message,
+ * and fill the request body field with a sample JSON document.
  */
 public final class BodyGeneratorActions {
 
@@ -51,36 +47,6 @@ public final class BodyGeneratorActions {
 		this.project = project;
 		this.parent = parent;
 		this.bodyField = bodyField;
-	}
-
-	public void generateFromClass() {
-		JCheckBox includeInherited = new JCheckBox("Include inherited fields", true);
-		JCheckBox useAnnotations = new JCheckBox("Use Jackson annotations", true);
-		JCheckBox useNulls = new JCheckBox("Use null values", false);
-		JPanel options = new JPanel(new GridLayout(0, 1));
-		options.add(includeInherited);
-		options.add(useAnnotations);
-		options.add(useNulls);
-		int confirm = JOptionPane.showConfirmDialog(parent, options, "Class body options", JOptionPane.OK_CANCEL_OPTION);
-		if (confirm != JOptionPane.OK_OPTION) {
-			return;
-		}
-		TreeClassChooser chooser = TreeClassChooserFactory.getInstance(project)
-			.createAllProjectScopeChooser("Select Class");
-		chooser.showDialog();
-		PsiClass psiClass = chooser.getSelected();
-		if (psiClass == null) {
-			return;
-		}
-		Map<String, Object> body = new ClassBodyGenerator().buildBody(
-			psiClass,
-			includeInherited.isSelected(),
-			useAnnotations.isSelected(),
-			useNulls.isSelected()
-		);
-		String json = JsonUtils.toJson(body);
-		bodyField.setText(json);
-		bodyField.requestFocusInWindow();
 	}
 
 	public void generateFromProto() {
