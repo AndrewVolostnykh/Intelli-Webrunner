@@ -6,6 +6,9 @@ import com.intelli.webrunner.debug.DebugCallSession;
 import com.intelli.webrunner.execution.DownloadResult;
 import com.intelli.webrunner.execution.ExecutionResult;
 import com.intelli.webrunner.execution.HttpExecutor;
+import com.intelli.webrunner.execution.HttpStressConfig;
+import com.intelli.webrunner.execution.HttpStressExecutionService;
+import com.intelli.webrunner.execution.HttpStressRequest;
 import com.intelli.webrunner.execution.RequestExecutionService;
 import com.intelli.webrunner.grpc.GrpcExecutor;
 import com.intelli.webrunner.grpc.GrpcServiceInfo;
@@ -63,6 +66,7 @@ import javax.swing.table.TableCellEditor;
 import javax.swing.table.TableColumn;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
+import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
@@ -80,6 +84,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Future;
 import java.util.function.IntConsumer;
 
 
@@ -101,6 +106,7 @@ public final class RequestEditorPanel {
 	private final GrpcExecutor grpcExecutor;
 	private final KafkaMetadataService kafkaMetadataService;
 	private final KafkaListenerService kafkaListenerService;
+	private final HttpStressExecutionService httpStressExecutionService;
 	private final ObjectMapper mapper = new ObjectMapper();
 
 	private final JPanel root = new JPanel(new BorderLayout());
@@ -119,6 +125,7 @@ public final class RequestEditorPanel {
 	private final JBTextField httpUrlField = new JBTextField();
 	private final JButton httpSendButton = new JButton(AllIcons.Actions.Execute);
 	private final JButton httpSendDownloadButton = new JButton(AllIcons.Actions.Download);
+	private final JButton httpStopButton = new JButton("\u25A0");
 	private final JButton httpDebugButton = new JButton(AllIcons.Actions.StartDebugger);
 	private final JButton httpGlobalContextButton = new JButton(AllIcons.Nodes.Variable);
 
@@ -127,6 +134,7 @@ public final class RequestEditorPanel {
 	private final JComboBox<String> grpcMethodCombo = new JComboBox<>();
 	private final JButton grpcReloadButton = new JButton(AllIcons.Actions.Refresh);
 	private final JButton grpcSendButton = new JButton(AllIcons.Actions.Execute);
+	private final JButton grpcStopButton = new JButton("\u25A0");
 	private final JButton grpcDebugButton = new JButton(AllIcons.Actions.StartDebugger);
 
 	private final JComboBox<String> kafkaBootstrapCombo = new JComboBox<>();
@@ -134,6 +142,7 @@ public final class RequestEditorPanel {
 	private final JBTextField kafkaKeyField = new JBTextField();
 	private final JButton kafkaReloadButton = new JButton(AllIcons.Actions.Refresh);
 	private final JButton kafkaSendButton = new JButton(AllIcons.Actions.Execute);
+	private final JButton kafkaStopButton = new JButton("\u25A0");
 	private final JComboBox<String> kafkaListenBootstrapCombo = new JComboBox<>();
 	private final JComboBox<String> kafkaListenTopicCombo = new JComboBox<>();
 	private final JBTextField kafkaGroupIdField = new JBTextField();
@@ -155,6 +164,7 @@ public final class RequestEditorPanel {
 	private final JButton binaryBrowseButton = new JButton("Browse");
 	private final EditorTextField beforeScriptArea;
 	private final EditorTextField afterScriptArea;
+	private final StressSettingsPanel stressSettingsPanel = new StressSettingsPanel();
 	private final HeaderTableModel headersTableModel = new HeaderTableModel();
 	private final JTable headersTable = new JTable(headersTableModel);
 	private final JButton addHeaderButton = new JButton("Add");
@@ -216,6 +226,7 @@ public final class RequestEditorPanel {
 	private final Map<String, String> grpcServiceSelection = new ConcurrentHashMap<>();
 	private boolean isGrpcReloading = false;
 	private boolean isKafkaReloading = false;
+	private Future<?> activeExecution;
 	private final Map<String, List<KafkaListenMessage>> kafkaListenMessagesByRequest = new ConcurrentHashMap<>();
 
 	private DebugCallSession debugCallSession;
@@ -242,6 +253,7 @@ public final class RequestEditorPanel {
 		this.grpcExecutor = grpcExecutor;
 		this.kafkaMetadataService = kafkaMetadataService;
 		this.kafkaListenerService = kafkaListenerService;
+		this.httpStressExecutionService = new HttpStressExecutionService(executionService);
 		this.scriptFileType = resolveScriptFileType();
 		this.requestBodyArea = new JsonBodyEditorField(project);
 		this.beforeScriptArea = createScriptEditor();
@@ -310,6 +322,7 @@ public final class RequestEditorPanel {
 		requestTabs.add("Headers", buildHeadersPanel());
 		requestTabs.add("Before Request", new JBScrollPane(beforeScriptArea));
 		requestTabs.add("After Request", new JBScrollPane(afterScriptArea));
+		requestTabs.add("Stress", stressSettingsPanel.getComponent());
 
 		JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, requestTabs, responseViewer.getComponent());
 		splitPane.setResizeWeight(0.6);
@@ -321,6 +334,7 @@ public final class RequestEditorPanel {
 		httpUrlField.setColumns(40);
 		configureIconButton(httpSendButton, "Send");
 		configureIconButton(httpSendDownloadButton, "Send and Download");
+		configureStopButton(httpStopButton);
 		configureIconButton(httpDebugButton, "Debug Call");
 		configureIconButton(httpGlobalContextButton, "Global Context");
 		topBar.add(httpMethodCombo);
@@ -328,12 +342,14 @@ public final class RequestEditorPanel {
 		topBar.add(new JLabel("URL"));
 		topBar.add(httpUrlField);
 		topBar.add(httpSendButton);
+		topBar.add(httpStopButton);
 		topBar.add(httpSendDownloadButton);
 		topBar.add(httpDebugButton);
 		topBar.add(httpGlobalContextButton);
 		topBar.add(createRequestMenuButton());
 		httpSendButton.addActionListener(e -> executeHttp());
 		httpSendDownloadButton.addActionListener(e -> executeHttpDownload());
+		httpStopButton.addActionListener(e -> stopActiveExecution());
 		httpDebugButton.addActionListener(e -> startDebugCall());
 		httpGlobalContextButton.addActionListener(e -> GlobalContextDialog.show(root, project, stateService));
 		return topBar;
@@ -384,6 +400,7 @@ public final class RequestEditorPanel {
 
 		configureIconButton(kafkaReloadButton, "Refresh Kafka metadata");
 		configureIconButton(kafkaSendButton, "Send Kafka message");
+		configureStopButton(kafkaStopButton);
 
 		constraints.gridx = 6;
 		constraints.weightx = 0;
@@ -394,10 +411,14 @@ public final class RequestEditorPanel {
 		topBar.add(kafkaSendButton, constraints);
 
 		constraints.gridx = 8;
+		topBar.add(kafkaStopButton, constraints);
+
+		constraints.gridx = 9;
 		topBar.add(createRequestMenuButton(), constraints);
 
 		kafkaReloadButton.addActionListener(e -> refreshKafkaMetadata());
 		kafkaSendButton.addActionListener(e -> executeKafka());
+		kafkaStopButton.addActionListener(e -> stopActiveExecution());
 		return topBar;
 	}
 
@@ -446,6 +467,7 @@ public final class RequestEditorPanel {
 
 		configureIconButton(kafkaListenReloadButton, "Refresh Kafka metadata");
 		kafkaListenButton.setToolTipText("Start or stop Kafka listening");
+		disableButtonFocus(kafkaListenButton);
 
 		constraints.gridx = 6;
 		constraints.weightx = 0;
@@ -506,6 +528,7 @@ public final class RequestEditorPanel {
 
 		configureIconButton(grpcReloadButton, "Reload");
 		configureIconButton(grpcSendButton, "Send");
+		configureStopButton(grpcStopButton);
 		configureIconButton(grpcDebugButton, "Debug Call");
 
 		constraints.gridx = 6;
@@ -517,14 +540,18 @@ public final class RequestEditorPanel {
 		topBar.add(grpcSendButton, constraints);
 
 		constraints.gridx = 8;
-		topBar.add(grpcDebugButton, constraints);
+		topBar.add(grpcStopButton, constraints);
 
 		constraints.gridx = 9;
+		topBar.add(grpcDebugButton, constraints);
+
+		constraints.gridx = 10;
 		JButton menuButton = createRequestMenuButton();
 		topBar.add(menuButton, constraints);
 
 		grpcReloadButton.addActionListener(e -> reloadGrpcServices());
 		grpcSendButton.addActionListener(e -> executeGrpc());
+		grpcStopButton.addActionListener(e -> stopActiveExecution());
 		grpcDebugButton.addActionListener(e -> startDebugCall());
 		return topBar;
 	}
@@ -540,6 +567,18 @@ public final class RequestEditorPanel {
 		button.setToolTipText(tooltip);
 		button.setMargin(new Insets(0, 0, 0, 0));
 		button.setPreferredSize(ICON_BUTTON_SIZE);
+		disableButtonFocus(button);
+	}
+
+	private void configureStopButton(JButton button) {
+		configureIconButton(button, "Stop");
+		button.setForeground(Color.RED);
+		button.setEnabled(false);
+	}
+
+	private void disableButtonFocus(JButton button) {
+		button.setFocusable(false);
+		button.setRequestFocusEnabled(false);
 	}
 
 	private void showRequestMenu(JButton anchor) {
@@ -688,9 +727,12 @@ public final class RequestEditorPanel {
 		panel.add(new JBScrollPane(table), BorderLayout.CENTER);
 
 		JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT));
+		disableButtonFocus(addButton);
+		disableButtonFocus(removeButton);
 		actions.add(addButton);
 		actions.add(removeButton);
 		for (JButton extraButton : extraButtons) {
+			disableButtonFocus(extraButton);
 			actions.add(extraButton);
 		}
 		addButton.addActionListener(e -> addRow.run());
@@ -703,6 +745,7 @@ public final class RequestEditorPanel {
 		JPanel panel = new JPanel(new BorderLayout());
 		JPanel content = new JPanel(new FlowLayout(FlowLayout.LEFT));
 		binaryFileField.setColumns(36);
+		disableButtonFocus(binaryBrowseButton);
 		content.add(new JLabel("File"));
 		content.add(binaryFileField);
 		content.add(binaryBrowseButton);
@@ -899,6 +942,7 @@ public final class RequestEditorPanel {
 				details != null ? details.url : null);
 		paramsTableModel.setHeaders(mergedParams, true);
 		paramsCards.show(paramsPanel, "table");
+		stressSettingsPanel.showFor(RequestType.HTTP);
 		switchPayloadType();
 		isLoading = false;
 	}
@@ -914,6 +958,7 @@ public final class RequestEditorPanel {
 		headersTableModel.setHeaders(status != null ? status.requestHeaders : List.of(), false);
 		paramsTableModel.setHeaders(status != null ? status.requestParams : List.of(), true);
 		paramsCards.show(paramsPanel, "table");
+		stressSettingsPanel.showFor(RequestType.GRPC);
 		isLoading = false;
 		if (details != null && details.target != null && !details.target.isBlank()) {
 			if (details.service != null) {
@@ -938,6 +983,7 @@ public final class RequestEditorPanel {
 		kafkaBodyTypeCombo.setSelectedItem(status != null && status.kafkaBodyType != null ? status.kafkaBodyType : "JSON");
 		kafkaPartitionsField.setText(status != null ? safe(status.kafkaPartitions) : "");
 		paramsCards.show(paramsPanel, "kafka");
+		stressSettingsPanel.showFor(RequestType.KAFKA);
 		isLoading = false;
 	}
 
@@ -957,6 +1003,7 @@ public final class RequestEditorPanel {
 			status != null && status.kafkaOffsetStrategy != null ? status.kafkaOffsetStrategy : "Latest"
 		);
 		paramsCards.show(paramsPanel, "kafkaListen");
+		stressSettingsPanel.showFor(RequestType.KAFKA_LISTEN);
 		kafkaListenButton.setText(isKafkaListening(node.id) ? "Stop Listening" : "Start Listening");
 		isLoading = false;
 	}
@@ -965,6 +1012,7 @@ public final class RequestEditorPanel {
 		requestBodyArea.setText(status != null ? safe(status.requestBody) : "");
 		beforeScriptArea.setText(status != null ? safe(status.beforeScript) : "");
 		afterScriptArea.setText(status != null ? safe(status.afterScript) : "");
+		stressSettingsPanel.load(status);
 		responseViewer.setContent(
 			status != null ? safe(status.responseBody) : "",
 			status != null ? safe(status.responseHeaders) : "",
@@ -1089,6 +1137,7 @@ public final class RequestEditorPanel {
 		status.logs = responseViewer.getLogs();
 		status.beforeScript = beforeScriptArea.getText();
 		status.afterScript = afterScriptArea.getText();
+		stressSettingsPanel.saveTo(status);
 		return status;
 	}
 
@@ -1115,13 +1164,102 @@ public final class RequestEditorPanel {
 		}
 
 		responseViewer.clearStatus();
-		runInBackground(() -> {
+		HttpStressConfig stressConfig = loadStressConfig(stressSettingsPanel.snapshot());
+		if (stressConfig.enabled()) {
+			if (!stressConfig.hasLimit()) {
+				responseViewer.showLog("Stress test requires Total Duration or Number of requests.");
+				return;
+			}
+			runRequestInBackground(() -> {
+				ExecutionResult result = httpStressExecutionService.execute(toStressRequest(context), stressConfig);
+				if (result != null && !Thread.currentThread().isInterrupted()) {
+					responseViewer.updateResponse(result, false);
+				}
+			});
+			return;
+		}
+		runRequestInBackground(() -> {
 			ExecutionResult result = executionService.executeWithScripts(
 				context.method, context.url, context.headers, context.params, context.body, context.before,
 				context.after, false, null, context.payloadType, context.formData, context.binaryFilePath
 			);
+			if (Thread.currentThread().isInterrupted()) {
+				return;
+			}
 			responseViewer.updateResponse(result, false);
 		});
+	}
+
+	private HttpStressConfig loadStressConfig(RequestStatusState status) {
+		if (status == null || !status.stressEnabled) {
+			return HttpStressConfig.disabled();
+		}
+		return new HttpStressConfig(
+			true,
+			parseDouble(status.stressRequestsPerSec, 0),
+			parseDurationMillis(status.stressTotalDuration, status.stressTotalDurationUnit),
+			parseInt(status.stressNumberOfRequests, 0),
+			parseInt(status.stressParallelWorkers, 1),
+			parseDurationMillis(status.stressRampUpTime, status.stressRampUpTimeUnit),
+			parseDurationMillis(status.stressDelayBetweenRequests, status.stressDelayBetweenRequestsUnit),
+			parseDouble(status.stressJitterFrom, 0),
+			parseDouble(status.stressJitterTo, 0)
+		);
+	}
+
+	private HttpStressRequest toStressRequest(HttpExecutionContext context) {
+		return new HttpStressRequest(
+			context.method,
+			context.url,
+			context.headers,
+			context.params,
+			context.body,
+			context.before,
+			context.after,
+			context.payloadType,
+			context.formData,
+			context.binaryFilePath
+		);
+	}
+
+	private int parseInt(
+		String value,
+		int fallback
+	) {
+		try {
+			return value == null || value.isBlank() ? fallback : Math.max(0, Integer.parseInt(value.trim()));
+		} catch (NumberFormatException ignored) {
+			return fallback;
+		}
+	}
+
+	private double parseDouble(
+		String value,
+		double fallback
+	) {
+		try {
+			return value == null || value.isBlank() ? fallback : Math.max(0, Double.parseDouble(value.trim()));
+		} catch (NumberFormatException ignored) {
+			return fallback;
+		}
+	}
+
+	private long parseDurationMillis(
+		String value,
+		String unit
+	) {
+		double amount = parseDouble(value, 0);
+		if (amount <= 0) {
+			return 0;
+		}
+		String normalizedUnit = unit == null ? "sec" : unit.trim().toLowerCase(Locale.ROOT);
+		if ("min".equals(normalizedUnit)) {
+			return Math.round(amount * 60_000);
+		}
+		if ("mills".equals(normalizedUnit)) {
+			return Math.round(amount);
+		}
+		return Math.round(amount * 1000);
 	}
 
 	private void executeHttpDownload() {
@@ -1131,11 +1269,14 @@ public final class RequestEditorPanel {
 		}
 
 		responseViewer.clearStatus();
-		runInBackground(() -> {
+		runRequestInBackground(() -> {
 			DownloadResult result = executionService.executeWithScriptsDownload(
 				context.method, context.url, context.headers, context.params, context.body, context.before,
 				context.after, context.payloadType, context.formData, context.binaryFilePath
 			);
+			if (Thread.currentThread().isInterrupted()) {
+				return;
+			}
 			responseViewer.updateResponse(result.result, false);
 			if (result.bodyBytes != null) {
 				invokeLater(() -> responseViewer.promptSaveDownload(result, root));
@@ -1191,9 +1332,12 @@ public final class RequestEditorPanel {
 		String after = status != null ? status.afterScript : "";
 
 		responseViewer.clearStatus();
-		runInBackground(() -> {
+		runRequestInBackground(() -> {
 			ExecutionResult result =
 				executionService.executeGrpcWithScripts(details, headers, params, body, before, after, null);
+			if (Thread.currentThread().isInterrupted()) {
+				return;
+			}
 			responseViewer.updateResponse(result, true);
 		});
 	}
@@ -1222,7 +1366,7 @@ public final class RequestEditorPanel {
 		String partition = status != null ? status.kafkaPartitions : "";
 
 		responseViewer.clearStatus();
-		runInBackground(() -> {
+		runRequestInBackground(() -> {
 			ExecutionResult result = executionService.executeKafkaWithScripts(
 				details,
 				headers,
@@ -1234,6 +1378,9 @@ public final class RequestEditorPanel {
 				partition,
 				null
 			);
+			if (Thread.currentThread().isInterrupted()) {
+				return;
+			}
 			responseViewer.updateResponse(result, false);
 		});
 	}
@@ -1591,6 +1738,7 @@ public final class RequestEditorPanel {
 		addEditableComboAutoSave(kafkaListenTopicCombo);
 		kafkaGroupIdField.getDocument().addDocumentListener(new AutoSaveListener());
 		kafkaPartitionsField.getDocument().addDocumentListener(new AutoSaveListener());
+		stressSettingsPanel.addAutoSaveListeners(new AutoSaveListener(), e -> saveActive());
 		requestBodyArea.addDocumentListener(new EditorAutoSaveListener());
 		beforeScriptArea.addDocumentListener(new EditorAutoSaveListener());
 		afterScriptArea.addDocumentListener(new EditorAutoSaveListener());
@@ -1812,6 +1960,46 @@ public final class RequestEditorPanel {
 
 	private void runInBackground(Runnable runnable) {
 		ApplicationManager.getApplication().executeOnPooledThread(runnable);
+	}
+
+	private void runRequestInBackground(Runnable runnable) {
+		if (activeExecution != null && !activeExecution.isDone()) {
+			return;
+		}
+		updateExecutionButtons(true);
+		responseViewer.startElapsedTimer();
+		activeExecution = ApplicationManager.getApplication().executeOnPooledThread(() -> {
+			try {
+				runnable.run();
+			} finally {
+				invokeLater(() -> {
+					responseViewer.stopElapsedTimer();
+					activeExecution = null;
+					updateExecutionButtons(false);
+				});
+			}
+		});
+	}
+
+	private void stopActiveExecution() {
+		if (activeExecution == null || activeExecution.isDone()) {
+			updateExecutionButtons(false);
+			return;
+		}
+		activeExecution.cancel(true);
+		responseViewer.showLog("Request stopped.");
+		responseViewer.stopElapsedTimer();
+		updateExecutionButtons(false);
+	}
+
+	private void updateExecutionButtons(boolean running) {
+		httpSendButton.setEnabled(!running);
+		httpSendDownloadButton.setEnabled(!running);
+		grpcSendButton.setEnabled(!running);
+		kafkaSendButton.setEnabled(!running);
+		httpStopButton.setEnabled(running);
+		grpcStopButton.setEnabled(running);
+		kafkaStopButton.setEnabled(running);
 	}
 
 	private void invokeLater(Runnable runnable) {

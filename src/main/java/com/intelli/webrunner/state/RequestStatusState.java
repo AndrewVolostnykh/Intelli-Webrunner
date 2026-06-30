@@ -19,4 +19,16 @@ public class RequestStatusState {
     public String kafkaBodyType;
     public String kafkaPartitions;
     public String kafkaOffsetStrategy;
+    public boolean stressEnabled;
+    public String stressRequestsPerSec;
+    public String stressTotalDuration;
+    public String stressTotalDurationUnit;
+    public String stressNumberOfRequests;
+    public String stressParallelWorkers;
+    public String stressRampUpTime;
+    public String stressRampUpTimeUnit;
+    public String stressDelayBetweenRequests;
+    public String stressDelayBetweenRequestsUnit;
+    public String stressJitterFrom;
+    public String stressJitterTo;
 }

@@ -378,6 +378,18 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             existing.kafkaBodyType = status.kafkaBodyType;
             existing.kafkaPartitions = status.kafkaPartitions;
             existing.kafkaOffsetStrategy = status.kafkaOffsetStrategy;
+            existing.stressEnabled = status.stressEnabled;
+            existing.stressRequestsPerSec = status.stressRequestsPerSec;
+            existing.stressTotalDuration = status.stressTotalDuration;
+            existing.stressTotalDurationUnit = status.stressTotalDurationUnit;
+            existing.stressNumberOfRequests = status.stressNumberOfRequests;
+            existing.stressParallelWorkers = status.stressParallelWorkers;
+            existing.stressRampUpTime = status.stressRampUpTime;
+            existing.stressRampUpTimeUnit = status.stressRampUpTimeUnit;
+            existing.stressDelayBetweenRequests = status.stressDelayBetweenRequests;
+            existing.stressDelayBetweenRequestsUnit = status.stressDelayBetweenRequestsUnit;
+            existing.stressJitterFrom = status.stressJitterFrom;
+            existing.stressJitterTo = status.stressJitterTo;
         }
     }
 
@@ -541,6 +553,18 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             clone.kafkaBodyType = status.kafkaBodyType;
             clone.kafkaPartitions = status.kafkaPartitions;
             clone.kafkaOffsetStrategy = status.kafkaOffsetStrategy;
+            clone.stressEnabled = status.stressEnabled;
+            clone.stressRequestsPerSec = status.stressRequestsPerSec;
+            clone.stressTotalDuration = status.stressTotalDuration;
+            clone.stressTotalDurationUnit = status.stressTotalDurationUnit;
+            clone.stressNumberOfRequests = status.stressNumberOfRequests;
+            clone.stressParallelWorkers = status.stressParallelWorkers;
+            clone.stressRampUpTime = status.stressRampUpTime;
+            clone.stressRampUpTimeUnit = status.stressRampUpTimeUnit;
+            clone.stressDelayBetweenRequests = status.stressDelayBetweenRequests;
+            clone.stressDelayBetweenRequestsUnit = status.stressDelayBetweenRequestsUnit;
+            clone.stressJitterFrom = status.stressJitterFrom;
+            clone.stressJitterTo = status.stressJitterTo;
             copy.add(clone);
         }
         return copy;

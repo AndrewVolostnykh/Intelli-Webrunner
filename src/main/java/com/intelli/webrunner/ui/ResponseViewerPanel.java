@@ -20,6 +20,7 @@ import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JPanel;
 import javax.swing.JTabbedPane;
+import javax.swing.Timer;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.io.File;
@@ -41,6 +42,8 @@ public final class ResponseViewerPanel {
 	private final EditorTextField responseHeadersArea;
 	private final JBTextArea responseLogsArea = new JBTextArea();
 	private final JPanel root = new JPanel(new BorderLayout());
+	private Timer elapsedTimer;
+	private long elapsedStartedAtMillis;
 
 	public ResponseViewerPanel(Project project, Runnable onResponsePersisted) {
 		this.project = project;
@@ -50,7 +53,7 @@ public final class ResponseViewerPanel {
 		this.responseBodyArea.setOneLineMode(false);
 		this.responseHeadersArea.setOneLineMode(false);
 
-		responseTabs.add("Response Body", new JBScrollPane(responseBodyArea));
+		responseTabs.add("Response", new JBScrollPane(responseBodyArea));
 		responseTabs.add("Response Headers", new JBScrollPane(responseHeadersArea));
 		responseTabs.add("Logs", new JBScrollPane(responseLogsArea));
 
@@ -120,9 +123,30 @@ public final class ResponseViewerPanel {
 		});
 	}
 
+	public void startElapsedTimer() {
+		invokeLater(() -> {
+			stopElapsedTimer();
+			elapsedStartedAtMillis = System.currentTimeMillis();
+			responseTimeLabel.setText("Time: 0 ms");
+			elapsedTimer = new Timer(100, e -> {
+				long elapsed = Math.max(0, System.currentTimeMillis() - elapsedStartedAtMillis);
+				responseTimeLabel.setText("Time: " + formatDuration(elapsed));
+			});
+			elapsedTimer.start();
+		});
+	}
+
+	public void stopElapsedTimer() {
+		if (elapsedTimer != null) {
+			elapsedTimer.stop();
+			elapsedTimer = null;
+		}
+	}
+
 	/** Applies an execution result to the UI on the EDT, then notifies the host to persist it. */
 	public void updateResponse(ExecutionResult result, boolean isGrpc) {
 		invokeLater(() -> {
+			stopElapsedTimer();
 			responseBodyArea.setText(result.responseBody);
 			responseHeadersArea.setText(result.responseHeaders);
 			responseLogsArea.setText(result.logs);
@@ -178,7 +202,7 @@ public final class ResponseViewerPanel {
 		JBTextArea logsArea = new JBTextArea();
 		logsArea.setDocument(responseLogsArea.getDocument());
 
-		tabs.add("Response Body", new JBScrollPane(bodyField));
+		tabs.add("Response", new JBScrollPane(bodyField));
 		tabs.add("Response Headers", new JBScrollPane(headersField));
 		tabs.add("Logs", new JBScrollPane(logsArea));
 

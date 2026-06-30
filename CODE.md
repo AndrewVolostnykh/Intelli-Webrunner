@@ -43,9 +43,11 @@ It is responsible for:
 - Kafka producer and listener target fields.
 - Send button.
 - Send and download button.
+- Stop button.
 - Debug button.
 - Global Context icon button.
 - Body, params, headers, before-script, and after-script tabs.
+- Stress tab.
 - Raw, form-data, and binary body modes.
 - Kafka send params such as key type, body type, and partition.
 - Kafka listen params such as offset strategy.
@@ -55,8 +57,16 @@ It is responsible for:
 
 The Global Context button opens `GlobalContextDialog`.
 
+During HTTP, gRPC, and Kafka send execution, `RequestEditorPanel` disables start buttons and enables
+the stop button until the background request task finishes or is cancelled.
+
 For HTTP requests, `Get cURL` reads the current editor state, generates a cURL command through
 `CurlCommandBuilder`, copies it to the system clipboard, and reports the result in the response log.
+
+`StressSettingsPanel` implements the Stress tab UI. It shows HTTP stress configuration fields and
+shows `Not implemented` for gRPC and Kafka request types until stress execution is implemented.
+When HTTP Stress is enabled, `RequestEditorPanel` starts a background task and delegates repeated
+HTTP execution to `HttpStressExecutionService`.
 
 ### `com.intelli.webrunner.ui.GlobalContextDialog`
 
@@ -237,6 +247,10 @@ It is responsible for:
 For chain execution, it shares one `vars` store across child requests while still using global context as the fallback placeholder source.
 
 Kafka producer execution follows the same before-script, placeholder resolution, transport call, after-script, and response persistence flow. It sends the resolved body, key, headers, optional partition, key type, and body type through `KafkaMessageProducer`, then returns Kafka metadata and the sent payload snapshot in the response body.
+
+`HttpStressExecutionService` runs HTTP stress executions on a worker pool. It uses `HttpStressConfig`
+and `HttpStressRequest`, schedules repeated request executions by rate, total duration, request
+count, workers, ramp-up, delay, and jitter, and returns a summary `ExecutionResult`.
 
 ## HTTP Transport
 

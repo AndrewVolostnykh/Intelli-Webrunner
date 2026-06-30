@@ -27,11 +27,12 @@ The top toolbar contains:
 3. URL.
 4. Send.
 5. Send and Download.
-6. Debug Call.
-7. Global Context.
-8. Three-dot request actions menu.
+6. Stop.
+7. Debug Call.
+8. Global Context.
+9. Three-dot request actions menu.
 
-The editor contains `Body`, `Params`, `Headers`, `Before Request`, and `After Request` tabs. The
+The editor contains `Body`, `Params`, `Headers`, `Before Request`, `After Request`, and `Stress` tabs. The
 response viewer is displayed below them.
 
 ## HTTP methods
@@ -285,6 +286,8 @@ Send runs this pipeline:
 10. Display response and logs.
 
 The HTTP client uses a 10-second connection timeout and a 30-second request timeout.
+While a request is running, Send is disabled and Stop is enabled. Stop cancels the active background
+request task.
 
 ## Send and Download
 

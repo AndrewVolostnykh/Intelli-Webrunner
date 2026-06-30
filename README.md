@@ -17,6 +17,7 @@ placeholders, response viewing, import/export tools, and small developer utiliti
 
 - Request tree with folders, search, drag-and-drop, rename, duplicate, move, and delete.
 - HTTP requests with params, headers, raw body, form-data, binary body, scripts, debug mode, cURL export, and response download.
+- HTTP Stress tab UI for request rate, duration, request count, workers, ramp-up, delay, and jitter range settings.
 - gRPC unary calls with reflection, metadata, JSON payloads, scripts, chain execution, and debug mode.
 - Kafka producer requests with configurable key/body types, headers, topic metadata refresh, scripts, and optional partition.
 - Kafka Listen requests with `Latest`/`Earliest` offset strategy and live appended response history.

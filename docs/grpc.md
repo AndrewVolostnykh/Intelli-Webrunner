@@ -6,7 +6,8 @@
 3. `Method` is the RPC method.
 4. `Reload` loads services through server reflection.
 5. `Send` executes the request.
-6. `Debug Call` starts step-by-step execution.
+6. `Stop` cancels the active request task.
+7. `Debug Call` starts step-by-step execution.
 
 ## Body
 1. The `Body` tab holds the payload for the RPC call.
