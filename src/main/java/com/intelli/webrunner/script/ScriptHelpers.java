@@ -1,5 +1,7 @@
 package com.intelli.webrunner.script;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.security.SecureRandom;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -10,11 +12,15 @@ import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class ScriptHelpers {
+    private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String RANDOM_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final DateTimeFormatter DATE_TIME_FORMATTER =
@@ -31,6 +37,19 @@ public class ScriptHelpers {
     }
 
     public void assertValue(Object actual, Object expected, String message) {
+        if (isJsonLike(actual) && isJsonLike(expected)) {
+            List<String> mismatches = new ArrayList<>();
+            collectJsonMismatches("$", actual, expected, mismatches);
+            if (mismatches.isEmpty()) {
+                return;
+            }
+            String prefix = "Assertion failed" + (message == null ? "" : ": " + message);
+            for (String mismatch : mismatches) {
+                logger.log(prefix + " " + mismatch);
+            }
+            return;
+        }
+
         boolean match;
         if (expected == null) {
             match = actual != null && !(actual instanceof Boolean && Objects.equals(actual, Boolean.FALSE));
@@ -45,6 +64,67 @@ public class ScriptHelpers {
         } else {
             logger.log("Assertion failed" + (message == null ? "" : ": " + message) + " expected " + expected + " received " + actual);
         }
+    }
+
+    private boolean isJsonLike(Object value) {
+        return value instanceof Map<?, ?> || value instanceof List<?>;
+    }
+
+    private void collectJsonMismatches(
+            String path,
+            Object actual,
+            Object expected,
+            List<String> mismatches
+    ) {
+        if (actual instanceof Map<?, ?> actualMap && expected instanceof Map<?, ?> expectedMap) {
+            for (Object expectedKey : expectedMap.keySet()) {
+                String key = String.valueOf(expectedKey);
+                if (!actualMap.containsKey(expectedKey)) {
+                    mismatches.add(path + "." + key + " expected " + formatAssertValue(expectedMap.get(expectedKey)) + " received <missing>");
+                    continue;
+                }
+                collectJsonMismatches(path + "." + key, actualMap.get(expectedKey), expectedMap.get(expectedKey), mismatches);
+            }
+            for (Object actualKey : actualMap.keySet()) {
+                if (!expectedMap.containsKey(actualKey)) {
+                    mismatches.add(path + "." + actualKey + " expected <missing> received " + formatAssertValue(actualMap.get(actualKey)));
+                }
+            }
+            return;
+        }
+
+        if (actual instanceof List<?> actualList && expected instanceof List<?> expectedList) {
+            int max = Math.max(actualList.size(), expectedList.size());
+            for (int i = 0; i < max; i++) {
+                if (i >= expectedList.size()) {
+                    mismatches.add(path + "[" + i + "] expected <missing> received " + formatAssertValue(actualList.get(i)));
+                    continue;
+                }
+                if (i >= actualList.size()) {
+                    mismatches.add(path + "[" + i + "] expected " + formatAssertValue(expectedList.get(i)) + " received <missing>");
+                    continue;
+                }
+                collectJsonMismatches(path + "[" + i + "]", actualList.get(i), expectedList.get(i), mismatches);
+            }
+            return;
+        }
+
+        if (!Objects.equals(actual, expected)) {
+            mismatches.add(path + " expected " + formatAssertValue(expected) + " received " + formatAssertValue(actual));
+        }
+    }
+
+    private String formatAssertValue(Object value) {
+        if (value == null) {
+            return "null";
+        }
+        if (value instanceof Map<?, ?> || value instanceof List<?>) {
+            try {
+                return MAPPER.writeValueAsString(value);
+            } catch (Exception ignored) {
+            }
+        }
+        return String.valueOf(value);
     }
 
     public String uuid() {

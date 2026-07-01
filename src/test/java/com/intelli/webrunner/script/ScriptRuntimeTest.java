@@ -162,6 +162,22 @@ class ScriptRuntimeTest {
 	}
 
 	@Test
+	void assertComparesJsonObjectsStructurally() {
+		List<String> logs = new ArrayList<>();
+
+		runtime.runScript(
+			"""
+				assert({ id: 7, nested: { ok: true }, roles: ['admin'] }, { id: 7, nested: { ok: true }, roles: ['admin'] }, 'objects should match');
+				assert({ id: 7 }, { id: 8 }, 'objects should differ');
+				""",
+			context(new VarsStore(), request(""), request(""), null, logs)
+		);
+
+		assertEquals(1, logs.size());
+		assertEquals("Assertion failed: objects should differ $.id expected 8.0 received 7.0", logs.get(0));
+	}
+
+	@Test
 	void predefinedRandomAndDateFunctionsAreAvailable() {
 		List<String> logs = new ArrayList<>();
 

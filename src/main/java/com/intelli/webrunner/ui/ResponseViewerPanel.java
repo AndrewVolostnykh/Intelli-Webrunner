@@ -4,15 +4,18 @@ import com.intelli.webrunner.execution.DownloadResult;
 import com.intelli.webrunner.execution.ExecutionResult;
 import com.intelli.webrunner.util.ContentDispositionUtils;
 import com.intelli.webrunner.util.HttpStatusReasons;
+import com.intellij.execution.filters.TextConsoleBuilderFactory;
+import com.intellij.execution.ui.ConsoleView;
+import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.json.JsonFileType;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.project.Project;
 import com.intellij.ui.EditorTextField;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBScrollPane;
-import com.intellij.ui.components.JBTextArea;
 
 import javax.swing.BorderFactory;
 import javax.swing.JComponent;
@@ -22,6 +25,7 @@ import javax.swing.JPanel;
 import javax.swing.JTabbedPane;
 import javax.swing.Timer;
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Component;
 import java.io.File;
 import java.nio.file.Files;
@@ -34,14 +38,20 @@ public final class ResponseViewerPanel {
 
 	private final Project project;
 	private final Runnable onResponsePersisted;
+	private static final ConsoleViewContentType WHITE_LOG_OUTPUT =
+		new ConsoleViewContentType(
+			"WEBRUNNER_WHITE_LOG_OUTPUT",
+			new TextAttributes(Color.WHITE, null, null, null, 0)
+		);
 
 	private final JTabbedPane responseTabs = new JTabbedPane();
 	private final JBLabel responseStatusLabel = new JBLabel("");
 	private final JBLabel responseTimeLabel = new JBLabel("");
 	private final EditorTextField responseBodyArea;
 	private final EditorTextField responseHeadersArea;
-	private final JBTextArea responseLogsArea = new JBTextArea();
+	private final ConsoleView responseLogsArea;
 	private final JPanel root = new JPanel(new BorderLayout());
+	private String responseLogsText = "";
 	private Timer elapsedTimer;
 	private long elapsedStartedAtMillis;
 
@@ -50,12 +60,13 @@ public final class ResponseViewerPanel {
 		this.onResponsePersisted = onResponsePersisted;
 		this.responseBodyArea = new EditorTextField("", project, JsonFileType.INSTANCE);
 		this.responseHeadersArea = new EditorTextField("", project, JsonFileType.INSTANCE);
+		this.responseLogsArea = TextConsoleBuilderFactory.getInstance().createBuilder(project).getConsole();
 		this.responseBodyArea.setOneLineMode(false);
 		this.responseHeadersArea.setOneLineMode(false);
 
 		responseTabs.add("Response", new JBScrollPane(responseBodyArea));
 		responseTabs.add("Response Headers", new JBScrollPane(responseHeadersArea));
-		responseTabs.add("Logs", new JBScrollPane(responseLogsArea));
+		responseTabs.add("Logs", responseLogsArea.getComponent());
 
 		responseStatusLabel.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
 		responseTimeLabel.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
@@ -91,29 +102,29 @@ public final class ResponseViewerPanel {
 	}
 
 	public String getLogs() {
-		return responseLogsArea.getText();
+		return responseLogsText;
 	}
 
 	/** Loads persisted response content and clears the status label. */
 	public void setContent(String body, String headers, String logs) {
 		responseBodyArea.setText(body == null ? "" : body);
 		responseHeadersArea.setText(headers == null ? "" : headers);
-		responseLogsArea.setText(logs == null ? "" : logs);
+		setLogs(logs);
 		responseStatusLabel.setText("");
 		responseTimeLabel.setText("");
 	}
 
 	public void showLog(String message) {
-		responseLogsArea.setText(message);
+		setLogs(message);
 	}
 
 	public void appendLog(String message) {
-		String existing = responseLogsArea.getText();
+		String existing = responseLogsText;
 		if (existing == null || existing.isBlank()) {
-			responseLogsArea.setText(message);
+			setLogs(message);
 			return;
 		}
-		responseLogsArea.setText(existing + "\n" + message);
+		setLogs(existing + "\n" + message);
 	}
 
 	public void clearStatus() {
@@ -149,7 +160,7 @@ public final class ResponseViewerPanel {
 			stopElapsedTimer();
 			responseBodyArea.setText(result.responseBody);
 			responseHeadersArea.setText(result.responseHeaders);
-			responseLogsArea.setText(result.logs);
+			setLogs(result.logs);
 			responseStatusLabel.setForeground(result.statusCode >= 400 ? JBColor.RED : JBColor.GREEN);
 			responseTimeLabel.setForeground(responseStatusLabel.getForeground());
 			responseTimeLabel.setText(result.durationMillis >= 0 ? "Time: " + formatDuration(result.durationMillis) : "");
@@ -199,12 +210,12 @@ public final class ResponseViewerPanel {
 		EditorTextField headersField =
 			new EditorTextField(responseHeadersArea.getDocument(), project, JsonFileType.INSTANCE, false, false);
 		headersField.setOneLineMode(false);
-		JBTextArea logsArea = new JBTextArea();
-		logsArea.setDocument(responseLogsArea.getDocument());
+		ConsoleView logsArea = TextConsoleBuilderFactory.getInstance().createBuilder(project).getConsole();
+		printLogs(logsArea, responseLogsText);
 
 		tabs.add("Response", new JBScrollPane(bodyField));
 		tabs.add("Response Headers", new JBScrollPane(headersField));
-		tabs.add("Logs", new JBScrollPane(logsArea));
+		tabs.add("Logs", logsArea.getComponent());
 
 		dialog.getContentPane().add(tabs);
 		dialog.setSize(900, 700);
@@ -215,6 +226,32 @@ public final class ResponseViewerPanel {
 
 	private void invokeLater(Runnable runnable) {
 		ApplicationManager.getApplication().invokeLater(runnable, ModalityState.any());
+	}
+
+	private void setLogs(String logs) {
+		responseLogsText = logs == null ? "" : logs;
+		invokeLater(() -> printLogs(responseLogsArea, responseLogsText));
+	}
+
+	private void printLogs(
+		ConsoleView console,
+		String logs
+	) {
+		console.clear();
+		if (logs == null || logs.isEmpty()) {
+			return;
+		}
+		String[] lines = logs.split("\\R", -1);
+		for (int i = 0; i < lines.length; i++) {
+			String line = lines[i];
+			ConsoleViewContentType type = line.contains("Assertion failed")
+				? ConsoleViewContentType.ERROR_OUTPUT
+				: WHITE_LOG_OUTPUT;
+			console.print(line, type);
+			if (i < lines.length - 1) {
+				console.print("\n", type);
+			}
+		}
 	}
 
 	private static String formatDuration(long durationMillis) {

@@ -66,8 +66,8 @@ public class ScriptRuntime {
             BaseFunction assertFn = new BaseFunction() {
                 @Override
                 public Object call(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
-                    Object actual = args.length > 0 ? args[0] : null;
-                    Object expected = args.length > 1 ? args[1] : null;
+                    Object actual = args.length > 0 ? normalizeAssertValue(args[0]) : null;
+                    Object expected = args.length > 1 ? normalizeAssertValue(args[1]) : null;
                     Object message = args.length > 2 ? args[2] : null;
                     context.helpers.assertValue(actual, expected, message == null ? null : String.valueOf(message));
                     return null;
@@ -418,6 +418,48 @@ public class ScriptRuntime {
             return Context.jsToJava(scriptValue, Object.class);
         }
         return javaValue;
+    }
+
+    private Object normalizeAssertValue(Object value) {
+        if (value instanceof NativeObject object) {
+            return normalizeAssertMap(object);
+        }
+        if (value instanceof NativeArray array) {
+            return normalizeAssertArray(array);
+        }
+        return value;
+    }
+
+    private Map<String, Object> normalizeAssertMap(NativeObject object) {
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        for (Object id : object.getIds()) {
+            String key = String.valueOf(id);
+            Object property = object.get(key, object);
+            result.put(key, normalizeAssertNestedValue(property));
+        }
+        return result;
+    }
+
+    private List<Object> normalizeAssertArray(NativeArray array) {
+        List<Object> result = new ArrayList<>();
+        for (Object id : array.getIds()) {
+            int index = id instanceof Number number ? number.intValue() : Integer.parseInt(String.valueOf(id));
+            result.add(normalizeAssertNestedValue(array.get(index, array)));
+        }
+        return result;
+    }
+
+    private Object normalizeAssertNestedValue(Object value) {
+        if (value instanceof NativeObject object) {
+            return normalizeAssertMap(object);
+        }
+        if (value instanceof NativeArray array) {
+            return normalizeAssertArray(array);
+        }
+        if (value instanceof Undefined) {
+            return null;
+        }
+        return Context.jsToJava(value, Object.class);
     }
 
     private String formatLogValue(Object value, Context cx, Scriptable scope) {
