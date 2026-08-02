@@ -28,6 +28,7 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 
 /**
@@ -49,6 +50,7 @@ public final class ResponseViewerPanel {
 	private final JBLabel responseTimeLabel = new JBLabel("");
 	private final EditorTextField responseBodyArea;
 	private final EditorTextField responseHeadersArea;
+	private final EditorTextField responseCookiesArea;
 	private final ConsoleView responseLogsArea;
 	private final JPanel root = new JPanel(new BorderLayout());
 	private String responseLogsText = "";
@@ -60,12 +62,15 @@ public final class ResponseViewerPanel {
 		this.onResponsePersisted = onResponsePersisted;
 		this.responseBodyArea = new EditorTextField("", project, JsonFileType.INSTANCE);
 		this.responseHeadersArea = new EditorTextField("", project, JsonFileType.INSTANCE);
+		this.responseCookiesArea = new EditorTextField("", project, JsonFileType.INSTANCE);
 		this.responseLogsArea = TextConsoleBuilderFactory.getInstance().createBuilder(project).getConsole();
 		this.responseBodyArea.setOneLineMode(false);
 		this.responseHeadersArea.setOneLineMode(false);
+		this.responseCookiesArea.setOneLineMode(false);
 
 		responseTabs.add("Response", new JBScrollPane(responseBodyArea));
 		responseTabs.add("Response Headers", new JBScrollPane(responseHeadersArea));
+		responseTabs.add("Cookies", new JBScrollPane(responseCookiesArea));
 		responseTabs.add("Logs", responseLogsArea.getComponent());
 
 		responseStatusLabel.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
@@ -93,6 +98,10 @@ public final class ResponseViewerPanel {
 		return responseHeadersArea;
 	}
 
+	public EditorTextField getCookiesField() {
+		return responseCookiesArea;
+	}
+
 	public String getResponseBody() {
 		return responseBodyArea.getText();
 	}
@@ -101,14 +110,19 @@ public final class ResponseViewerPanel {
 		return responseHeadersArea.getText();
 	}
 
+	public String getResponseCookies() {
+		return responseCookiesArea.getText();
+	}
+
 	public String getLogs() {
 		return responseLogsText;
 	}
 
 	/** Loads persisted response content and clears the status label. */
-	public void setContent(String body, String headers, String logs) {
+	public void setContent(String body, String headers, String cookies, String logs) {
 		responseBodyArea.setText(body == null ? "" : body);
 		responseHeadersArea.setText(headers == null ? "" : headers);
+		responseCookiesArea.setText(cookies == null ? "" : cookies);
 		setLogs(logs);
 		responseStatusLabel.setText("");
 		responseTimeLabel.setText("");
@@ -138,10 +152,11 @@ public final class ResponseViewerPanel {
 		invokeLater(() -> {
 			stopElapsedTimer();
 			elapsedStartedAtMillis = System.currentTimeMillis();
-			responseTimeLabel.setText("Time: 0 ms");
+			responseStatusLabel.setText("0 ms");
+			responseTimeLabel.setText("");
 			elapsedTimer = new Timer(100, e -> {
 				long elapsed = Math.max(0, System.currentTimeMillis() - elapsedStartedAtMillis);
-				responseTimeLabel.setText("Time: " + formatDuration(elapsed));
+				responseStatusLabel.setText(formatDuration(elapsed));
 			});
 			elapsedTimer.start();
 		});
@@ -160,11 +175,11 @@ public final class ResponseViewerPanel {
 			stopElapsedTimer();
 			responseBodyArea.setText(result.responseBody);
 			responseHeadersArea.setText(result.responseHeaders);
+			responseCookiesArea.setText(result.responseCookies);
 			setLogs(result.logs);
 			responseStatusLabel.setForeground(result.statusCode >= 400 ? JBColor.RED : JBColor.GREEN);
-			responseTimeLabel.setForeground(responseStatusLabel.getForeground());
-			responseTimeLabel.setText(result.durationMillis >= 0 ? "Time: " + formatDuration(result.durationMillis) : "");
-			responseStatusLabel.setText("Status: " + HttpStatusReasons.format(result.statusCode, result.statusMessage));
+			responseTimeLabel.setText("");
+			responseStatusLabel.setText(formatResultMetadata(result));
 			if (onResponsePersisted != null) {
 				onResponsePersisted.run();
 			}
@@ -210,11 +225,15 @@ public final class ResponseViewerPanel {
 		EditorTextField headersField =
 			new EditorTextField(responseHeadersArea.getDocument(), project, JsonFileType.INSTANCE, false, false);
 		headersField.setOneLineMode(false);
+		EditorTextField cookiesField =
+			new EditorTextField(responseCookiesArea.getDocument(), project, JsonFileType.INSTANCE, false, false);
+		cookiesField.setOneLineMode(false);
 		ConsoleView logsArea = TextConsoleBuilderFactory.getInstance().createBuilder(project).getConsole();
 		printLogs(logsArea, responseLogsText);
 
 		tabs.add("Response", new JBScrollPane(bodyField));
 		tabs.add("Response Headers", new JBScrollPane(headersField));
+		tabs.add("Cookies", new JBScrollPane(cookiesField));
 		tabs.add("Logs", logsArea.getComponent());
 
 		dialog.getContentPane().add(tabs);
@@ -255,11 +274,31 @@ public final class ResponseViewerPanel {
 	}
 
 	private static String formatDuration(long durationMillis) {
-		if (durationMillis < 1000) {
-			return durationMillis + " ms";
+		return durationMillis + " ms";
+	}
+
+	private static String formatResultMetadata(ExecutionResult result) {
+		StringBuilder builder = new StringBuilder();
+		builder.append("Status: ").append(HttpStatusReasons.format(result.statusCode, result.statusMessage));
+		if (result.durationMillis >= 0) {
+			builder.append(" | ").append(formatDuration(result.durationMillis));
 		}
-		long seconds = durationMillis / 1000;
-		long millis = durationMillis % 1000;
-		return seconds + "." + String.format("%03d", millis) + " s";
+		builder.append(" | ").append(formatSize(responseBodySize(result.responseBody)));
+		return builder.toString();
+	}
+
+	private static int responseBodySize(String responseBody) {
+		return responseBody == null ? 0 : responseBody.getBytes(StandardCharsets.UTF_8).length;
+	}
+
+	private static String formatSize(int bytes) {
+		if (bytes < 1024) {
+			return bytes + " B";
+		}
+		double kib = bytes / 1024.0;
+		if (kib < 1024) {
+			return String.format("%.1f KB", kib);
+		}
+		return String.format("%.1f MB", kib / 1024.0);
 	}
 }

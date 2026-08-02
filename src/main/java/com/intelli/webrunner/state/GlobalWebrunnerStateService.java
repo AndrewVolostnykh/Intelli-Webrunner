@@ -31,6 +31,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         state.chainStates = loaded.chainStates == null ? new ArrayList<>() : new ArrayList<>(loaded.chainStates);
         state.headerPresets = loaded.headerPresets == null ? new ArrayList<>() : cloneHeaderPresets(loaded.headerPresets);
         state.globalContext = cloneGlobalContext(loaded.globalContext);
+        state.stressTestsEnabled = loaded.stressTestsEnabled;
     }
 
     public List<NodeState> getNodes() {
@@ -45,6 +46,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         snapshot.chainStates = cloneChains(state.chainStates);
         snapshot.headerPresets = cloneHeaderPresets(state.headerPresets);
         snapshot.globalContext = cloneGlobalContext(state.globalContext);
+        snapshot.stressTestsEnabled = state.stressTestsEnabled;
         return snapshot;
     }
 
@@ -58,6 +60,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         state.chainStates = incoming.chainStates == null ? new ArrayList<>() : cloneChains(incoming.chainStates);
         state.headerPresets = incoming.headerPresets == null ? new ArrayList<>() : cloneHeaderPresets(incoming.headerPresets);
         state.globalContext = cloneGlobalContext(incoming.globalContext);
+        state.stressTestsEnabled = incoming.stressTestsEnabled;
         normalizeOrders();
     }
 
@@ -115,6 +118,13 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
                 }
                 chain.requestIds = mapped;
             }
+            if (chain.stepStates != null) {
+                for (ChainStepState step : chain.stepStates) {
+                    if (step.requestId != null && idMap.containsKey(step.requestId)) {
+                        step.requestId = idMap.get(step.requestId);
+                    }
+                }
+            }
         }
 
         // Drop orphaned nodes whose parent no longer exists (map to root).
@@ -163,6 +173,14 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
 
     public void saveHeaderPresets(List<HeaderPresetState> presets) {
         state.headerPresets = presets == null ? new ArrayList<>() : cloneHeaderPresets(presets);
+    }
+
+    public boolean isStressTestsEnabled() {
+        return state.stressTestsEnabled;
+    }
+
+    public void saveStressTestsEnabled(boolean enabled) {
+        state.stressTestsEnabled = enabled;
     }
 
     public GlobalContextState getGlobalContext() {
@@ -249,6 +267,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         status.requestBody = "";
         status.responseBody = "";
         status.responseHeaders = "";
+        status.responseCookies = "";
         status.logs = "";
         status.beforeScript = "";
         status.afterScript = "";
@@ -266,6 +285,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             chain.requestId = node.id;
             chain.logs = "";
             chain.currentState = "";
+            chain.stepStates = new ArrayList<>();
             state.chainStates.add(chain);
         }
 
@@ -289,6 +309,45 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         if (node != null) {
             node.name = name;
         }
+    }
+
+    public NodeState cloneRequest(String sourceRequestId, String name) {
+        NodeState source = findNode(sourceRequestId);
+        if (source == null || source.type != NodeType.REQUEST || name == null || name.isBlank()) {
+            return null;
+        }
+
+        NodeState clone = new NodeState();
+        clone.id = UUID.randomUUID().toString();
+        clone.name = name.trim();
+        clone.type = NodeType.REQUEST;
+        clone.requestType = source.requestType;
+        clone.parentId = source.parentId;
+        clone.order = nextOrder(source.parentId);
+        state.nodes.add(clone);
+
+        RequestDetailsState sourceDetails = getRequestDetails(sourceRequestId);
+        if (sourceDetails != null) {
+            RequestDetailsState details = cloneDetails(sourceDetails);
+            details.requestId = clone.id;
+            state.requestDetails.add(details);
+        }
+
+        RequestStatusState sourceStatus = getRequestStatus(sourceRequestId);
+        if (sourceStatus != null) {
+            RequestStatusState status = cloneStatus(sourceStatus);
+            status.requestId = clone.id;
+            state.requestStatuses.add(status);
+        }
+
+        ChainState sourceChain = getChainState(sourceRequestId);
+        if (sourceChain != null) {
+            ChainState chain = cloneChain(sourceChain);
+            chain.requestId = clone.id;
+            state.chainStates.add(chain);
+        }
+
+        return clone;
     }
 
     public void moveNode(String nodeId, String newParentId, int newIndex) {
@@ -371,6 +430,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             existing.binaryFilePath = status.binaryFilePath;
             existing.responseBody = status.responseBody;
             existing.responseHeaders = status.responseHeaders;
+            existing.responseCookies = status.responseCookies;
             existing.logs = status.logs;
             existing.beforeScript = status.beforeScript;
             existing.afterScript = status.afterScript;
@@ -408,6 +468,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             state.chainStates.add(chain);
         } else {
             existing.requestIds = chain.requestIds == null ? new ArrayList<>() : new ArrayList<>(chain.requestIds);
+            existing.stepStates = cloneChainSteps(chain.stepStates);
             existing.logs = chain.logs;
             existing.currentState = chain.currentState;
         }
@@ -513,22 +574,26 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             return copy;
         }
         for (RequestDetailsState details : detailsList) {
-            RequestDetailsState clone = new RequestDetailsState();
-            clone.requestId = details.requestId;
-            clone.type = details.type;
-            clone.method = details.method;
-            clone.payloadType = details.payloadType;
-            clone.url = details.url;
-            clone.target = details.target;
-            clone.service = details.service;
-            clone.grpcMethod = details.grpcMethod;
-            clone.kafkaBootstrapServers = details.kafkaBootstrapServers;
-            clone.kafkaTopic = details.kafkaTopic;
-            clone.kafkaKey = details.kafkaKey;
-            clone.kafkaGroupId = details.kafkaGroupId;
-            copy.add(clone);
+            copy.add(cloneDetails(details));
         }
         return copy;
+    }
+
+    private RequestDetailsState cloneDetails(RequestDetailsState details) {
+        RequestDetailsState clone = new RequestDetailsState();
+        clone.requestId = details.requestId;
+        clone.type = details.type;
+        clone.method = details.method;
+        clone.payloadType = details.payloadType;
+        clone.url = details.url;
+        clone.target = details.target;
+        clone.service = details.service;
+        clone.grpcMethod = details.grpcMethod;
+        clone.kafkaBootstrapServers = details.kafkaBootstrapServers;
+        clone.kafkaTopic = details.kafkaTopic;
+        clone.kafkaKey = details.kafkaKey;
+        clone.kafkaGroupId = details.kafkaGroupId;
+        return clone;
     }
 
     private List<RequestStatusState> cloneStatuses(List<RequestStatusState> statuses) {
@@ -537,37 +602,42 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             return copy;
         }
         for (RequestStatusState status : statuses) {
-            RequestStatusState clone = new RequestStatusState();
-            clone.requestId = status.requestId;
-            clone.requestBody = status.requestBody;
-            clone.requestHeaders = status.requestHeaders == null ? new ArrayList<>() : cloneHeaders(status.requestHeaders);
-            clone.requestParams = status.requestParams == null ? new ArrayList<>() : cloneHeaders(status.requestParams);
-            clone.formData = status.formData == null ? new ArrayList<>() : cloneFormData(status.formData);
-            clone.binaryFilePath = status.binaryFilePath;
-            clone.responseBody = status.responseBody;
-            clone.responseHeaders = status.responseHeaders;
-            clone.logs = status.logs;
-            clone.beforeScript = status.beforeScript;
-            clone.afterScript = status.afterScript;
-            clone.kafkaKeyType = status.kafkaKeyType;
-            clone.kafkaBodyType = status.kafkaBodyType;
-            clone.kafkaPartitions = status.kafkaPartitions;
-            clone.kafkaOffsetStrategy = status.kafkaOffsetStrategy;
-            clone.stressEnabled = status.stressEnabled;
-            clone.stressRequestsPerSec = status.stressRequestsPerSec;
-            clone.stressTotalDuration = status.stressTotalDuration;
-            clone.stressTotalDurationUnit = status.stressTotalDurationUnit;
-            clone.stressNumberOfRequests = status.stressNumberOfRequests;
-            clone.stressParallelWorkers = status.stressParallelWorkers;
-            clone.stressRampUpTime = status.stressRampUpTime;
-            clone.stressRampUpTimeUnit = status.stressRampUpTimeUnit;
-            clone.stressDelayBetweenRequests = status.stressDelayBetweenRequests;
-            clone.stressDelayBetweenRequestsUnit = status.stressDelayBetweenRequestsUnit;
-            clone.stressJitterFrom = status.stressJitterFrom;
-            clone.stressJitterTo = status.stressJitterTo;
-            copy.add(clone);
+            copy.add(cloneStatus(status));
         }
         return copy;
+    }
+
+    private RequestStatusState cloneStatus(RequestStatusState status) {
+        RequestStatusState clone = new RequestStatusState();
+        clone.requestId = status.requestId;
+        clone.requestBody = status.requestBody;
+        clone.requestHeaders = status.requestHeaders == null ? new ArrayList<>() : cloneHeaders(status.requestHeaders);
+        clone.requestParams = status.requestParams == null ? new ArrayList<>() : cloneHeaders(status.requestParams);
+        clone.formData = status.formData == null ? new ArrayList<>() : cloneFormData(status.formData);
+        clone.binaryFilePath = status.binaryFilePath;
+        clone.responseBody = status.responseBody;
+        clone.responseHeaders = status.responseHeaders;
+        clone.responseCookies = status.responseCookies;
+        clone.logs = status.logs;
+        clone.beforeScript = status.beforeScript;
+        clone.afterScript = status.afterScript;
+        clone.kafkaKeyType = status.kafkaKeyType;
+        clone.kafkaBodyType = status.kafkaBodyType;
+        clone.kafkaPartitions = status.kafkaPartitions;
+        clone.kafkaOffsetStrategy = status.kafkaOffsetStrategy;
+        clone.stressEnabled = status.stressEnabled;
+        clone.stressRequestsPerSec = status.stressRequestsPerSec;
+        clone.stressTotalDuration = status.stressTotalDuration;
+        clone.stressTotalDurationUnit = status.stressTotalDurationUnit;
+        clone.stressNumberOfRequests = status.stressNumberOfRequests;
+        clone.stressParallelWorkers = status.stressParallelWorkers;
+        clone.stressRampUpTime = status.stressRampUpTime;
+        clone.stressRampUpTimeUnit = status.stressRampUpTimeUnit;
+        clone.stressDelayBetweenRequests = status.stressDelayBetweenRequests;
+        clone.stressDelayBetweenRequestsUnit = status.stressDelayBetweenRequestsUnit;
+        clone.stressJitterFrom = status.stressJitterFrom;
+        clone.stressJitterTo = status.stressJitterTo;
+        return clone;
     }
 
     private List<FormEntryState> cloneFormData(List<FormEntryState> entries) {
@@ -603,11 +673,45 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             return copy;
         }
         for (ChainState chain : chains) {
-            ChainState clone = new ChainState();
-            clone.requestId = chain.requestId;
-            clone.requestIds = chain.requestIds == null ? new ArrayList<>() : new ArrayList<>(chain.requestIds);
-            clone.logs = chain.logs;
-            clone.currentState = chain.currentState;
+            copy.add(cloneChain(chain));
+        }
+        return copy;
+    }
+
+    private ChainState cloneChain(ChainState chain) {
+        ChainState clone = new ChainState();
+        clone.requestId = chain.requestId;
+        clone.requestIds = chain.requestIds == null ? new ArrayList<>() : new ArrayList<>(chain.requestIds);
+        clone.stepStates = cloneChainSteps(chain.stepStates);
+        clone.logs = chain.logs;
+        clone.currentState = chain.currentState;
+        return clone;
+    }
+
+    private List<ChainStepState> cloneChainSteps(List<ChainStepState> steps) {
+        List<ChainStepState> copy = new ArrayList<>();
+        if (steps == null) {
+            return copy;
+        }
+        for (ChainStepState step : steps) {
+            ChainStepState clone = new ChainStepState();
+            clone.requestId = step.requestId;
+            clone.successCodes = step.successCodes;
+            clone.runBasicBeforeRequest = step.runBasicBeforeRequest;
+            clone.runBasicAfterRequest = step.runBasicAfterRequest;
+            clone.runBasicStress = step.runBasicStress;
+            clone.runIfScript = step.runIfScript;
+            clone.beforeRequestScript = step.beforeRequestScript;
+            clone.afterRequestScript = step.afterRequestScript;
+            clone.interruptIfScript = step.interruptIfScript;
+            clone.rawRequestSnapshot = step.rawRequestSnapshot;
+            clone.sentRequestSnapshot = step.sentRequestSnapshot;
+            clone.responseSnapshot = step.responseSnapshot;
+            clone.resultBody = step.resultBody;
+            clone.resultResponse = step.resultResponse;
+            clone.resultHeaders = step.resultHeaders;
+            clone.resultCookies = step.resultCookies;
+            clone.resultBodySnapshot = step.resultBodySnapshot;
             copy.add(clone);
         }
         return copy;

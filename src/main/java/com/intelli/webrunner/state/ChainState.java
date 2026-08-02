@@ -6,6 +6,7 @@ import java.util.List;
 public class ChainState {
     public String requestId;
     public List<String> requestIds = new ArrayList<>();
+    public List<ChainStepState> stepStates = new ArrayList<>();
     public String logs;
     public String currentState;
 }

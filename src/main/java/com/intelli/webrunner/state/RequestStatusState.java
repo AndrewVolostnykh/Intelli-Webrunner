@@ -12,6 +12,7 @@ public class RequestStatusState {
     public String binaryFilePath;
     public String responseBody;
     public String responseHeaders;
+    public String responseCookies;
     public String logs;
     public String beforeScript;
     public String afterScript;

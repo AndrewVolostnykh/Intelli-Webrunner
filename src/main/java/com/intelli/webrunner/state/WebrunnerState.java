@@ -10,4 +10,5 @@ public class WebrunnerState {
     public List<ChainState> chainStates = new ArrayList<>();
     public List<HeaderPresetState> headerPresets = new ArrayList<>();
     public GlobalContextState globalContext = new GlobalContextState();
+    public boolean stressTestsEnabled = true;
 }

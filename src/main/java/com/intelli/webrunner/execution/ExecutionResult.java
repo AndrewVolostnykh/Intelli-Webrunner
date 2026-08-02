@@ -11,8 +11,12 @@ public class ExecutionResult {
 	public final String statusMessage;
 	public final String responseBody;
 	public final String responseHeaders;
+	public final String responseCookies;
 	public final String logs;
 	public final long durationMillis;
+	public final String rawRequestSnapshot;
+	public final String sentRequestSnapshot;
+	public final String responseSnapshot;
 
 	public ExecutionResult(
 		int statusCode,
@@ -21,7 +25,18 @@ public class ExecutionResult {
 		String responseHeaders,
 		String logs
 	) {
-		this(statusCode, statusMessage, responseBody, responseHeaders, logs, -1);
+		this(statusCode, statusMessage, responseBody, responseHeaders, "", logs, -1);
+	}
+
+	public ExecutionResult(
+		int statusCode,
+		String statusMessage,
+		String responseBody,
+		String responseHeaders,
+		String responseCookies,
+		String logs
+	) {
+		this(statusCode, statusMessage, responseBody, responseHeaders, responseCookies, logs, -1);
 	}
 
 	public ExecutionResult(
@@ -32,15 +47,57 @@ public class ExecutionResult {
 		String logs,
 		long durationMillis
 	) {
+		this(statusCode, statusMessage, responseBody, responseHeaders, "", logs, durationMillis);
+	}
+
+	public ExecutionResult(
+		int statusCode,
+		String statusMessage,
+		String responseBody,
+		String responseHeaders,
+		String responseCookies,
+		String logs,
+		long durationMillis
+	) {
+		this(
+			statusCode,
+			statusMessage,
+			responseBody,
+			responseHeaders,
+			responseCookies,
+			logs,
+			durationMillis,
+			"",
+			"",
+			""
+		);
+	}
+
+	public ExecutionResult(
+		int statusCode,
+		String statusMessage,
+		String responseBody,
+		String responseHeaders,
+		String responseCookies,
+		String logs,
+		long durationMillis,
+		String rawRequestSnapshot,
+		String sentRequestSnapshot,
+		String responseSnapshot
+	) {
 		this.statusCode = statusCode;
 		this.statusMessage = statusMessage;
 		this.responseBody = responseBody;
 		this.responseHeaders = responseHeaders;
+		this.responseCookies = responseCookies;
 		this.logs = logs;
 		this.durationMillis = durationMillis;
+		this.rawRequestSnapshot = rawRequestSnapshot;
+		this.sentRequestSnapshot = sentRequestSnapshot;
+		this.responseSnapshot = responseSnapshot;
 	}
 
 	public static ExecutionResult failure(List<String> logs) {
-		return new ExecutionResult(0, "", "", "{}", String.join("\n", logs));
+		return new ExecutionResult(0, "", "", "{}", "", String.join("\n", logs));
 	}
 }

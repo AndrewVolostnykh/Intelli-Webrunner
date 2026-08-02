@@ -24,7 +24,7 @@ It owns the high-level event flow between selected tree nodes, editor changes, r
 
 ### `com.intelli.webrunner.ui`
 
-`RequestTreePanel` renders the saved request tree and handles tree-level actions such as add, rename, duplicate, delete, move, drag and drop, filtering, and node selection.
+`RequestTreePanel` renders the saved request tree and handles tree-level actions such as add, rename, clone, delete, move, drag and drop, filtering, and node selection.
 
 `RequestTreeNode` wraps request model objects for display in the Swing tree.
 
@@ -68,6 +68,28 @@ shows `Not implemented` for gRPC and Kafka request types until stress execution 
 When HTTP Stress is enabled, `RequestEditorPanel` starts a background task and delegates repeated
 HTTP execution to `HttpStressExecutionService`.
 
+### `com.intelli.webrunner.ui.ChainEditorPanel`
+
+`ChainEditorPanel` renders and edits chain requests. Its toolbar contains icon buttons for running,
+stopping, debugging, and stepping to the next chain request, plus a Chain Context icon button for
+viewing the current chain state.
+
+The chain editor has a left work area for the chain request list and logs/current state, and a
+separate right work area with Options, Request, and Result tabs. Options contains Config controls
+for success codes and basic hook execution checkboxes, plus JavaScript editor tabs for run
+conditions and chain hooks. Request contains editor-backed Raw Request, Sent Request, and Response
+snapshots from the execution pipeline. Result contains editor-backed tabs for body, response
+metadata, headers, cookies, and a body snapshot.
+
+Chain Options, Request, and Result are bound to the selected chain step. Each step persists its own
+success codes, basic hook checkboxes, JavaScript editor content, request snapshots, and last result
+fields. During debug or normal execution, selecting the active chain row also switches the right
+work area to that row's configuration and result.
+
+After a chain step executes, the chain list shows a colored runtime badge before the request name.
+The status is `Passed` when the response code is included in that step's Success Codes field and
+`Failed` otherwise. The same row also shows response code, duration, and response body size.
+
 ### `com.intelli.webrunner.ui.GlobalContextDialog`
 
 `GlobalContextDialog` implements the Global Context UI. It contains:
@@ -84,6 +106,8 @@ It loads and saves global context through `GlobalWebrunnerStateService`.
 ### `com.intelli.webrunner.toolwindow.WebrunnerToolWindowPanel`
 
 `WebrunnerToolWindowPanel` owns the Dev Tools toolbar button and menu. The menu opens small utility dialogs for ad hoc developer tasks.
+
+It also opens `SettingsDialog` for reusable header presets and feature flags such as Stress Tests.
 
 Current Dev Tools entries include:
 
@@ -121,7 +145,8 @@ Current Dev Tools entries include:
 
 ### `com.intelli.webrunner.ui.JsonToolPanel`
 
-`JsonToolPanel` provides a soft-wrapped JSON editor with Minify and Beautify actions backed by Jackson parsing and formatting.
+`JsonToolPanel` provides a soft-wrapped IntelliJ `EditorTextField` JSON editor with Minify and
+Beautify actions backed by Jackson parsing and formatting.
 
 Its three-dot actions menu contains:
 
@@ -191,7 +216,7 @@ algorithm.
 
 ### `com.intelli.webrunner.ui`
 
-`ResponsePanel` displays response status, headers or metadata, body, timing, and formatting actions.
+`ResponsePanel` displays response status, headers or metadata, cookies, body, timing, and formatting actions.
 
 `ResponseWindowManager` opens responses in separate IDE windows.
 
@@ -476,6 +501,7 @@ It is responsible for:
 
 - Loading state.
 - Saving request tree changes.
+- Cloning requests with their details, status, and chain state.
 - Saving global context.
 - Saving global context variables.
 - Cloning state for import/export.
@@ -561,6 +587,7 @@ Utility classes provide shared helpers for:
 
 - Template replacement.
 - JSON formatting.
+- HTTP response cookie extraction from `Set-Cookie` headers.
 - Literal JSON editor text removal and replacement through `JsonTextOperations`.
 - Plain-text whitespace and period formatting through `TextFormatting`.
 - cURL command generation and parsing.
@@ -597,6 +624,11 @@ raw bodies, multipart form-data, binary files, and GET data.
 
 Covers removing and replacing all literal text occurrences, empty targets, and null replacement
 values.
+
+### `src/test/java/com/intelli/webrunner/util/ResponseCookieUtilsTest.java`
+
+Covers extracting response cookies from `Set-Cookie` headers, including cookie attributes and
+missing-cookie cases.
 
 ### `build.gradle`
 

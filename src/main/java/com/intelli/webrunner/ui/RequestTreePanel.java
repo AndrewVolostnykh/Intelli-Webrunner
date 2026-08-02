@@ -16,6 +16,7 @@ import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 import java.awt.Dimension;
+import java.awt.Point;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
@@ -55,7 +56,7 @@ public final class RequestTreePanel {
 		tree.setDragEnabled(true);
 		tree.setDropMode(DropMode.ON_OR_INSERT);
 		tree.setTransferHandler(new TreeTransferHandler());
-		tree.setCellRenderer(new NodeTreeCellRenderer());
+		tree.setCellRenderer(new NodeTreeCellRenderer(stateService));
 		this.scroll = new JBScrollPane(tree);
 		this.scroll.setMinimumSize(new Dimension(200, 0));
 	}
@@ -132,6 +133,40 @@ public final class RequestTreePanel {
 			return node.parentId;
 		}
 		return null;
+	}
+
+	public String folderIdAt(Point point) {
+		if (point == null) {
+			return selectedFolderId();
+		}
+		TreePath path = tree.getPathForLocation(point.x, point.y);
+		if (path == null) {
+			return null;
+		}
+		Object component = path.getLastPathComponent();
+		if (!(component instanceof DefaultMutableTreeNode treeNode)) {
+			return null;
+		}
+		Object userObject = treeNode.getUserObject();
+		if (userObject instanceof NodeState node && node.type == NodeType.FOLDER) {
+			return node.id;
+		}
+		if (userObject instanceof NodeState node && node.type == NodeType.REQUEST) {
+			return node.parentId;
+		}
+		return null;
+	}
+
+	public void selectNodeAt(Point point) {
+		if (point == null) {
+			return;
+		}
+		TreePath path = tree.getPathForLocation(point.x, point.y);
+		if (path == null) {
+			tree.clearSelection();
+			return;
+		}
+		tree.setSelectionPath(path);
 	}
 
 	public TreeFolderSelection getTreeFolderSelection() {

@@ -226,6 +226,7 @@ public final class RequestEditorPanel {
 	private final Map<String, String> grpcServiceSelection = new ConcurrentHashMap<>();
 	private boolean isGrpcReloading = false;
 	private boolean isKafkaReloading = false;
+	private boolean stressTestsEnabled;
 	private Future<?> activeExecution;
 	private final Map<String, List<KafkaListenMessage>> kafkaListenMessagesByRequest = new ConcurrentHashMap<>();
 
@@ -266,6 +267,7 @@ public final class RequestEditorPanel {
 		this.urlParamSyncTimer = new javax.swing.Timer(350, e -> syncParamsFromUrlField());
 		this.urlParamSyncTimer.setRepeats(false);
 		this.headerPresets = stateService.getHeaderPresets();
+		this.stressTestsEnabled = stateService.isStressTestsEnabled();
 		this.bodyGenerator = new BodyGeneratorActions(project, root, requestBodyArea);
 
 		buildComponent();
@@ -300,6 +302,14 @@ public final class RequestEditorPanel {
 		);
 	}
 
+	public void setStressTestsEnabled(boolean enabled) {
+		if (stressTestsEnabled == enabled) {
+			return;
+		}
+		stressTestsEnabled = enabled;
+		updateStressTabVisibility();
+	}
+
 	// ---- build ----
 
 	private void buildComponent() {
@@ -322,11 +332,22 @@ public final class RequestEditorPanel {
 		requestTabs.add("Headers", buildHeadersPanel());
 		requestTabs.add("Before Request", new JBScrollPane(beforeScriptArea));
 		requestTabs.add("After Request", new JBScrollPane(afterScriptArea));
-		requestTabs.add("Stress", stressSettingsPanel.getComponent());
+		updateStressTabVisibility();
 
 		JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, requestTabs, responseViewer.getComponent());
 		splitPane.setResizeWeight(0.6);
+		SplitPaneStyling.applyThinBlackDivider(splitPane);
 		root.add(splitPane, BorderLayout.CENTER);
+	}
+
+	private void updateStressTabVisibility() {
+		JComponent stressComponent = stressSettingsPanel.getComponent();
+		int stressTabIndex = requestTabs.indexOfComponent(stressComponent);
+		if (stressTestsEnabled && stressTabIndex < 0) {
+			requestTabs.add("Stress", stressComponent);
+		} else if (!stressTestsEnabled && stressTabIndex >= 0) {
+			requestTabs.removeTabAt(stressTabIndex);
+		}
 	}
 
 	private JPanel buildHttpTopBar() {
@@ -1016,6 +1037,7 @@ public final class RequestEditorPanel {
 		responseViewer.setContent(
 			status != null ? safe(status.responseBody) : "",
 			status != null ? safe(status.responseHeaders) : "",
+			status != null ? safe(status.responseCookies) : "",
 			status != null ? safe(status.logs) : ""
 		);
 	}
@@ -1134,6 +1156,7 @@ public final class RequestEditorPanel {
 		status.binaryFilePath = binaryFileField.getText();
 		status.responseBody = responseViewer.getResponseBody();
 		status.responseHeaders = responseViewer.getResponseHeaders();
+		status.responseCookies = responseViewer.getResponseCookies();
 		status.logs = responseViewer.getLogs();
 		status.beforeScript = beforeScriptArea.getText();
 		status.afterScript = afterScriptArea.getText();
@@ -1191,7 +1214,7 @@ public final class RequestEditorPanel {
 	}
 
 	private HttpStressConfig loadStressConfig(RequestStatusState status) {
-		if (status == null || !status.stressEnabled) {
+		if (!stressTestsEnabled || status == null || !status.stressEnabled) {
 			return HttpStressConfig.disabled();
 		}
 		return new HttpStressConfig(

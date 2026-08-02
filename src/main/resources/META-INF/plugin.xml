@@ -12,7 +12,7 @@
     <extensions defaultExtensionNs="com.intellij">
         <applicationService serviceImplementation="com.intelli.webrunner.state.GlobalWebrunnerStateService"/>
         <toolWindow id="Intelli Webrunner"
-                    anchor="right"
+                    anchor="left"
                     icon="/icons/toolWindow.svg"
                     factoryClass="com.intelli.webrunner.toolwindow.WebrunnerToolWindowFactory"/>
     </extensions>

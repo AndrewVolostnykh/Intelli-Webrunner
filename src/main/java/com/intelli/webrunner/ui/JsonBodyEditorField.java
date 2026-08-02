@@ -15,6 +15,7 @@ import com.intellij.ui.EditorTextField;
 
 public class JsonBodyEditorField extends EditorTextField {
     private static final Key<Boolean> JSON_BODY_EDITOR = Key.create("webrunner.json.body.editor");
+
     public JsonBodyEditorField(Project project) {
         super("", project, JsonFileType.INSTANCE);
         setOneLineMode(false);
@@ -35,6 +36,7 @@ public class JsonBodyEditorField extends EditorTextField {
             settings.setFoldingOutlineShown(true);
             settings.setIndentGuidesShown(true);
             settings.setCaretRowShown(true);
+            settings.setUseSoftWraps(true);
             editor.putUserData(JSON_BODY_EDITOR, Boolean.TRUE);
             ensureTypedHandler();
         });

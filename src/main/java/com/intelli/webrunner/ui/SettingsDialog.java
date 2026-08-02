@@ -3,6 +3,7 @@ package com.intelli.webrunner.ui;
 import com.intelli.webrunner.state.HeaderPresetState;
 
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JDialog;
 import javax.swing.JPanel;
 import javax.swing.JTable;
@@ -27,7 +28,8 @@ public final class SettingsDialog {
 	public static void show(
 		Component parent,
 		List<HeaderPresetState> presets,
-		Consumer<List<HeaderPresetState>> onSaved
+		boolean stressTestsEnabled,
+		Consumer<SettingsResult> onSaved
 	) {
 		JDialog dialog = new JDialog();
 		dialog.setTitle("Settings");
@@ -53,6 +55,10 @@ public final class SettingsDialog {
 		headersPanel.add(actions, BorderLayout.SOUTH);
 
 		tabs.add("Headers", headersPanel);
+		JCheckBox stressTestsCheckbox = new JCheckBox("Stress Tests", stressTestsEnabled);
+		JPanel featuresPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+		featuresPanel.add(stressTestsCheckbox);
+		tabs.add("Features", featuresPanel);
 
 		JPanel footer = new JPanel(new FlowLayout(FlowLayout.RIGHT));
 		JButton saveButton = new JButton("Save");
@@ -66,7 +72,7 @@ public final class SettingsDialog {
 					editor.stopCellEditing();
 				}
 			}
-			onSaved.accept(model.getPresets());
+			onSaved.accept(new SettingsResult(model.getPresets(), stressTestsCheckbox.isSelected()));
 			dialog.dispose();
 		});
 		cancelButton.addActionListener(e -> dialog.dispose());
@@ -78,5 +84,8 @@ public final class SettingsDialog {
 		dialog.setLocationRelativeTo(parent);
 		dialog.setModal(false);
 		dialog.setVisible(true);
+	}
+
+	public record SettingsResult(List<HeaderPresetState> headerPresets, boolean stressTestsEnabled) {
 	}
 }

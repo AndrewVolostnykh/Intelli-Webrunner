@@ -32,6 +32,7 @@ import com.intelli.webrunner.ui.RequestEditorPanel;
 import com.intelli.webrunner.ui.RequestTreePanel;
 import com.intelli.webrunner.ui.ResponseViewerPanel;
 import com.intelli.webrunner.ui.SettingsDialog;
+import com.intelli.webrunner.ui.SplitPaneStyling;
 import com.intelli.webrunner.ui.TextToolDialog;
 import com.intelli.webrunner.ui.UrlToolDialog;
 import com.intelli.webrunner.ui.UuidGeneratorDialog;
@@ -45,9 +46,9 @@ import com.intelli.webrunner.util.StateCopyUtils;
 import com.intelli.webrunner.util.TemplateEngine;
 import com.intelli.webrunner.util.UrlParamUtils;
 import com.intellij.icons.AllIcons;
-import com.intellij.icons.AllIcons.Actions;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBLabel;
 
 import javax.swing.AbstractAction;
@@ -78,6 +79,7 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Insets;
 import java.awt.KeyboardFocusManager;
+import java.awt.Point;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -89,6 +91,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 
 public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable {
 
@@ -96,8 +100,6 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 	private final GlobalWebrunnerStateService stateService;
 	private final JPanel root;
 	private final RequestTreePanel treePanel;
-	private final JButton newFolderButton;
-	private final JButton newRequestButton;
 	private final JButton moreButton;
 	private final JButton devToolsButton;
 	private final JButton deleteButton;
@@ -106,6 +108,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 	private final JPanel emptyPanel;
 
 	private NodeState currentNode;
+	private String treePopupFolderId;
 
 	private final ObjectMapper mapper = new ObjectMapper();
 	private final TemplateEngine templateEngine = new TemplateEngine();
@@ -136,8 +139,6 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 				kafkaMessageProducer,
 				stateService
 			);
-		this.newFolderButton = new JButton("", AllIcons.Actions.NewFolder);
-		this.newRequestButton = new JButton("", Actions.AddFile);
 		this.moreButton = new JButton("⋮");
 		this.devToolsButton = new JButton("", AllIcons.General.ExternalTools);
 		this.deleteButton = new JButton("-");
@@ -178,6 +179,17 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 	private void buildUi() {
 		JPanel leftPanel = new JPanel(new BorderLayout());
 		treePanel.getTree().addTreeSelectionListener(this::handleTreeSelection);
+		treePanel.getTree().addMouseListener(new MouseAdapter() {
+			@Override
+			public void mousePressed(MouseEvent event) {
+				handleTreePopupTrigger(event);
+			}
+
+			@Override
+			public void mouseReleased(MouseEvent event) {
+				handleTreePopupTrigger(event);
+			}
+		});
 		treePanel.getTree().setComponentPopupMenu(buildTreePopupMenu());
 
 		JPanel leftActions = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -189,13 +201,9 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		devToolsButton.setToolTipText("Dev Tools");
 		deleteButton.setPreferredSize(compactButton);
 		deleteButton.setMargin(new Insets(0, 0, 0, 0));
-		leftActions.add(newFolderButton);
-		leftActions.add(newRequestButton);
 		leftActions.add(deleteButton);
 		leftActions.add(moreButton);
 		leftActions.add(devToolsButton);
-		newFolderButton.addActionListener(e -> createFolder());
-		newRequestButton.addActionListener(e -> createRequest());
 		deleteButton.addActionListener(e -> deleteSelected());
 		moreButton.addActionListener(e -> showMoreMenu());
 		devToolsButton.addActionListener(e -> showDevToolsMenu());
@@ -212,6 +220,9 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 
 		JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, editorPanel);
 		splitPane.setResizeWeight(0.25);
+		splitPane.setBackground(JBColor.BLACK);
+		splitPane.setForeground(JBColor.BLACK);
+		SplitPaneStyling.applyThinBlackDivider(splitPane);
 		root.add(splitPane, BorderLayout.CENTER);
 
 		attachHotkeys();
@@ -220,22 +231,44 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		editorCards.show(editorPanel, "empty");
 	}
 
+	private void handleTreePopupTrigger(MouseEvent event) {
+		if (!event.isPopupTrigger()) {
+			return;
+		}
+		Point point = event.getPoint();
+		treePopupFolderId = treePanel.folderIdAt(point);
+		treePanel.selectNodeAt(point);
+	}
+
 	private JPopupMenu buildTreePopupMenu() {
 		JPopupMenu menu = new JPopupMenu();
+		JMenuItem newRequest = new JMenuItem("New Request");
 		JMenuItem rename = new JMenuItem("Rename");
+		JMenuItem clone = new JMenuItem("Clone");
+		JMenuItem newCollection = new JMenuItem("New Collection");
 		JMenuItem remove = new JMenuItem("Delete");
+		JMenuItem useCurlItem = new JMenuItem("Use cURL");
 		JMenuItem importHttpItem = new JMenuItem("Import .http");
 		JMenuItem exportHttpItem = new JMenuItem("Export .http");
 		JMenuItem importOpenApiItem = new JMenuItem("Import OpenAPI");
 		JMenuItem exportOpenApiItem = new JMenuItem("Export OpenAPI");
+		newRequest.addActionListener(e -> createRequest());
 		rename.addActionListener(e -> renameSelected());
+		clone.addActionListener(e -> cloneSelectedRequest());
+		newCollection.addActionListener(e -> createFolder());
 		remove.addActionListener(e -> deleteSelected());
+		useCurlItem.addActionListener(e -> useCurl(treePopupFolderId));
 		importHttpItem.addActionListener(e -> importHttpFromTree());
 		exportHttpItem.addActionListener(e -> exportHttpFromTree());
 		importOpenApiItem.addActionListener(e -> importOpenApiFromTree());
 		exportOpenApiItem.addActionListener(e -> exportOpenApiFromTree());
+		menu.add(newRequest);
 		menu.add(rename);
+		menu.add(clone);
+		menu.add(newCollection);
 		menu.add(remove);
+		menu.addSeparator();
+		menu.add(useCurlItem);
 		menu.addSeparator();
 		menu.add(importHttpItem);
 		menu.add(exportHttpItem);
@@ -247,6 +280,8 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 			public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
 				RequestTreePanel.TreeFolderSelection selection = treePanel.getTreeFolderSelection();
 				boolean enable = selection != null;
+				boolean requestSelected = currentNode != null && currentNode.type == NodeType.REQUEST;
+				clone.setEnabled(requestSelected);
 				importHttpItem.setEnabled(enable);
 				exportHttpItem.setEnabled(enable);
 				importOpenApiItem.setEnabled(enable);
@@ -267,7 +302,6 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 	private void showMoreMenu() {
 		JPopupMenu menu = new JPopupMenu();
 		JMenuItem refreshItem = new JMenuItem("Refresh");
-		JMenuItem useCurlItem = new JMenuItem("Use cURL");
 		JMenuItem importCollectionsItem = new JMenuItem("Import Collections (JSON)");
 		JMenuItem exportCollectionsItem = new JMenuItem("Export Collections (JSON)");
 		JMenuItem importHttpItem = new JMenuItem("Import .http");
@@ -275,7 +309,6 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		JMenuItem settingsItem = new JMenuItem("Settings");
 		JMenuItem infoItem = new JMenuItem("Info");
 		refreshItem.addActionListener(e -> reloadTree());
-		useCurlItem.addActionListener(e -> useCurl());
 		importCollectionsItem.addActionListener(e -> importCollectionsJson());
 		exportCollectionsItem.addActionListener(e -> exportCollectionsJson());
 		importHttpItem.addActionListener(e -> importHttpFromChooser());
@@ -283,8 +316,6 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		settingsItem.addActionListener(e -> openSettingsDialog());
 		infoItem.addActionListener(e -> showInfoDialog());
 		menu.add(refreshItem);
-		menu.addSeparator();
-		menu.add(useCurlItem);
 		menu.addSeparator();
 		menu.add(importCollectionsItem);
 		menu.add(exportCollectionsItem);
@@ -297,14 +328,13 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		menu.show(moreButton, 0, moreButton.getHeight());
 	}
 
-	private void useCurl() {
+	private void useCurl(String parentId) {
 		CurlImportDialog.Input input = CurlImportDialog.show(root);
 		if (input == null || input.command() == null || input.command().isBlank()) {
 			return;
 		}
 		try {
 			CurlRequest imported = CurlCommandParser.parse(input.command());
-			String parentId = treePanel.selectedFolderId();
 			String name = input.name() == null || input.name().isBlank()
 				? imported.method + " " + imported.url
 				: input.name().trim();
@@ -325,6 +355,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 			status.binaryFilePath = imported.binaryFilePath;
 			status.responseBody = "";
 			status.responseHeaders = "";
+			status.responseCookies = "";
 			status.logs = "";
 			status.beforeScript = "";
 			status.afterScript = "";
@@ -354,7 +385,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		jwtItem.addActionListener(e -> JwtDecoderDialog.show(root, project));
 		base64Item.addActionListener(e -> Base64ToolDialog.show(root, project));
 		urlItem.addActionListener(e -> UrlToolDialog.show(root, project));
-		jsonItem.addActionListener(e -> JsonToolDialog.show(root));
+		jsonItem.addActionListener(e -> JsonToolDialog.show(root, project));
 		textItem.addActionListener(e -> TextToolDialog.show(root));
 		hashItem.addActionListener(e -> HashToolDialog.show(root));
 		compareItem.addActionListener(e -> CompareToolDialog.show(root, project));
@@ -382,6 +413,22 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		}
 		stateService.updateNodeName(currentNode.id, name);
 		reloadTree();
+	}
+
+	private void cloneSelectedRequest() {
+		if (currentNode == null || currentNode.type != NodeType.REQUEST) {
+			return;
+		}
+		String defaultName = safe(currentNode.name).isBlank() ? "Request copy" : currentNode.name + " Copy";
+		String name = JOptionPane.showInputDialog(root, "Clone name:", defaultName);
+		if (name == null || name.isBlank()) {
+			return;
+		}
+		saveCurrentEditors();
+		NodeState cloned = stateService.cloneRequest(currentNode.id, name);
+		if (cloned != null) {
+			reloadTree(cloned.id);
+		}
 	}
 
 	private void showInfoDialog() {
@@ -436,7 +483,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 	}
 
 	private void createFolder() {
-		String name = JOptionPane.showInputDialog(root, "Folder name:");
+		String name = JOptionPane.showInputDialog(root, "Collection name:");
 		if (name == null || name.isBlank()) {
 			return;
 		}
@@ -453,6 +500,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 			"Request name:", nameField,
 			"Request type:", typeCombo
 		};
+		SwingUtilities.invokeLater(nameField::requestFocusInWindow);
 		int result = JOptionPane.showConfirmDialog(
 			root,
 			fields,
@@ -864,6 +912,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 				status.requestParams = parseQueryParams(details.url);
 				status.responseBody = "";
 				status.responseHeaders = "";
+				status.responseCookies = "";
 				status.logs = "";
 				status.beforeScript = "";
 				status.afterScript = "";
@@ -1150,6 +1199,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 						requestData.params == null ? new ArrayList<>() : new ArrayList<>(requestData.params);
 					status.responseBody = "";
 					status.responseHeaders = "";
+					status.responseCookies = "";
 					status.logs = "";
 					status.beforeScript = requestData.beforeScript == null ? "" : requestData.beforeScript;
 					status.afterScript = requestData.afterScript == null ? "" : requestData.afterScript;
@@ -1429,9 +1479,11 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 	}
 
 	private void openSettingsDialog() {
-		SettingsDialog.show(root, stateService.getHeaderPresets(), presets -> {
-			stateService.saveHeaderPresets(presets);
-			editor.updateHeaderPresets(presets);
+		SettingsDialog.show(root, stateService.getHeaderPresets(), stateService.isStressTestsEnabled(), settings -> {
+			stateService.saveHeaderPresets(settings.headerPresets());
+			stateService.saveStressTestsEnabled(settings.stressTestsEnabled());
+			editor.updateHeaderPresets(settings.headerPresets());
+			editor.setStressTestsEnabled(settings.stressTestsEnabled());
 		});
 	}
 

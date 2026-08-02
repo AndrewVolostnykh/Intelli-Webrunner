@@ -19,6 +19,7 @@ import com.intelli.webrunner.state.RequestDetailsState;
 import com.intelli.webrunner.util.JsonUtils;
 import com.intelli.webrunner.util.HttpStatusReasons;
 import com.intelli.webrunner.util.PayloadTypes;
+import com.intelli.webrunner.util.ResponseCookieUtils;
 import com.intelli.webrunner.util.StateCopyUtils;
 import com.intelli.webrunner.util.TemplateEngine;
 import com.intelli.webrunner.util.UrlParamUtils;
@@ -113,6 +114,11 @@ public final class RequestExecutionService {
 		String templatedUrl = UrlParamUtils.applyDefaultProtocol(
 			UrlParamUtils.applyQueryParams(templatedUrlBase, templatedParams)
 		);
+		String rawRequestSnapshot = buildHttpRequestSnapshot(method, url, rawRequest);
+		ScriptRequest sentRequest = new ScriptRequest(templatedBody, templatedHeaders, templatedParams);
+		sentRequest.setFormData(StateCopyUtils.cloneFormData(templatedFormData));
+		sentRequest.setBinaryFilePath(templatedBinaryPath);
+		String sentRequestSnapshot = buildHttpRequestSnapshot(method, templatedUrl, sentRequest);
 
 		try {
 			HttpExecutionResponse response =
@@ -150,12 +156,25 @@ public final class RequestExecutionService {
 			}
 			globalContextRuntime.persist(globalContext);
 			String responseHeaders = JsonUtils.toJson(response.headers);
+			String responseCookies = JsonUtils.toJson(ResponseCookieUtils.extractCookies(response.headers));
+			String responseSnapshot = buildResponseSnapshot(
+				response.statusCode,
+				HttpStatusReasons.reason(response.statusCode),
+				response.body,
+				response.headers,
+				ResponseCookieUtils.extractCookies(response.headers)
+			);
 			return withDuration(new ExecutionResult(
 				response.statusCode,
 				HttpStatusReasons.reason(response.statusCode),
 				JsonUtils.prettyPrint(response.body),
 				responseHeaders,
-				String.join("\n", logs)
+				responseCookies,
+				String.join("\n", logs),
+				-1,
+				rawRequestSnapshot,
+				sentRequestSnapshot,
+				responseSnapshot
 			), startedAt);
 		} catch (Exception error) {
 			logs.add("Request failed: " + error.getMessage());
@@ -254,11 +273,13 @@ public final class RequestExecutionService {
 			}
 			globalContextRuntime.persist(globalContext);
 			String responseHeaders = JsonUtils.toJson(response.headers);
+			String responseCookies = JsonUtils.toJson(ResponseCookieUtils.extractCookies(response.headers));
 			ExecutionResult result = withDuration(new ExecutionResult(
 				response.statusCode,
 				HttpStatusReasons.reason(response.statusCode),
 				JsonUtils.prettyPrint(response.body),
 				responseHeaders,
+				responseCookies,
 				String.join("\n", logs)
 			), startedAt);
 			return new DownloadResult(result, response.bodyBytes, response.headers);
@@ -303,6 +324,9 @@ public final class RequestExecutionService {
 		List<HeaderEntryState> templatedHeaders =
 			templateEngine.applyToHeaders(scriptRequest.getHeaders(), varsSnapshot);
 		List<HeaderEntryState> templatedParams = templateEngine.applyToParams(scriptRequest.getParams(), varsSnapshot);
+		String rawRequestSnapshot = buildGrpcRequestSnapshot(details, rawRequest);
+		ScriptRequest sentRequest = new ScriptRequest(templatedBody, templatedHeaders, templatedParams);
+		String sentRequestSnapshot = buildGrpcRequestSnapshot(details, sentRequest);
 
 		try {
 			GrpcExecutionResponse response = grpcExecutor.execute(details.target,
@@ -333,12 +357,24 @@ public final class RequestExecutionService {
 			}
 			globalContextRuntime.persist(globalContext);
 			String responseHeaders = JsonUtils.toJson(response.headers);
+			String responseSnapshot = buildResponseSnapshot(
+				response.statusCode,
+				response.statusMessage,
+				response.body,
+				response.headers,
+				List.of()
+			);
 			return withDuration(new ExecutionResult(
 				response.statusCode,
 				response.statusMessage,
 				JsonUtils.prettyPrint(response.body),
 				responseHeaders,
-				String.join("\n", logs)
+				"",
+				String.join("\n", logs),
+				-1,
+				rawRequestSnapshot,
+				sentRequestSnapshot,
+				responseSnapshot
 			), startedAt);
 		} catch (Exception error) {
 			logs.add("gRPC request failed: " + error.getMessage());
@@ -485,6 +521,62 @@ public final class RequestExecutionService {
 		return result;
 	}
 
+	private String buildHttpRequestSnapshot(
+		String method,
+		String url,
+		ScriptRequest request
+	) {
+		Map<String, Object> snapshot = buildRequestSnapshot(request);
+		snapshot.put("method", method == null ? "GET" : method);
+		snapshot.put("url", url == null ? "" : url);
+		return JsonUtils.toJson(snapshot);
+	}
+
+	private String buildGrpcRequestSnapshot(
+		RequestDetailsState details,
+		ScriptRequest request
+	) {
+		Map<String, Object> snapshot = buildRequestSnapshot(request);
+		snapshot.put("target", details == null || details.target == null ? "" : details.target);
+		snapshot.put("service", details == null || details.service == null ? "" : details.service);
+		snapshot.put("method", details == null || details.grpcMethod == null ? "" : details.grpcMethod);
+		return JsonUtils.toJson(snapshot);
+	}
+
+	private Map<String, Object> buildRequestSnapshot(ScriptRequest request) {
+		Map<String, Object> snapshot = new LinkedHashMap<>();
+		if (request == null) {
+			snapshot.put("body", "");
+			snapshot.put("params", List.of());
+			snapshot.put("headers", List.of());
+			snapshot.put("formData", List.of());
+			snapshot.put("binaryFilePath", "");
+			return snapshot;
+		}
+		snapshot.put("body", request.getBody() == null ? "" : request.getBody());
+		snapshot.put("params", request.getParams() == null ? List.of() : request.getParams());
+		snapshot.put("headers", request.getHeaders() == null ? List.of() : request.getHeaders());
+		snapshot.put("formData", request.getFormData() == null ? List.of() : request.getFormData());
+		snapshot.put("binaryFilePath", request.getBinaryFilePath() == null ? "" : request.getBinaryFilePath());
+		return snapshot;
+	}
+
+	private String buildResponseSnapshot(
+		int statusCode,
+		String statusMessage,
+		String body,
+		Object headers,
+		Object cookies
+	) {
+		Map<String, Object> snapshot = new LinkedHashMap<>();
+		snapshot.put("statusCode", statusCode);
+		snapshot.put("statusMessage", statusMessage == null ? "" : statusMessage);
+		snapshot.put("body", JsonUtils.prettyPrint(body));
+		snapshot.put("headers", headers == null ? Map.of() : headers);
+		snapshot.put("cookies", cookies == null ? List.of() : cookies);
+		return JsonUtils.toJson(snapshot);
+	}
+
 	private ExecutionResult withDuration(
 		ExecutionResult result,
 		long startedAt
@@ -495,8 +587,12 @@ public final class RequestExecutionService {
 			result.statusMessage,
 			result.responseBody,
 			result.responseHeaders,
+			result.responseCookies,
 			result.logs,
-			durationMillis
+			durationMillis,
+			result.rawRequestSnapshot,
+			result.sentRequestSnapshot,
+			result.responseSnapshot
 		);
 	}
 
