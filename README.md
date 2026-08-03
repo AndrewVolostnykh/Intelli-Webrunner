@@ -82,4 +82,4 @@ Run in sandbox IDE:
 Before changing code, read:
 
 - [CODE.md](CODE.md) for project structure and implementation notes.
-- [tempLocal/REQUIREMENTS_TO_CODE.md](tempLocal/REQUIREMENTS_TO_CODE.md) for local code requirements.
+- [tempLocal/REQUIREMENTS_TO_CODE.md](REQUIREMENTS_TO_CODE.md) for local code requirements.

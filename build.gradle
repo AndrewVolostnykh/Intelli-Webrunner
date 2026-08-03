@@ -3,7 +3,7 @@ plugins {
     id 'org.jetbrains.intellij' version '1.17.3'
 }
 
-group = 'com.intelli.webrunner'
+group = 'com.non-organic-onion.intelli.webrunner'
 version = '0.15.1'
 
 repositories {

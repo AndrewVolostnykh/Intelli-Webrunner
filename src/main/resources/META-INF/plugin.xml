@@ -2,7 +2,7 @@
     <id>intelli-webrunner</id>
     <name>Intelli Webrunner</name>
     <vendor email="support@example.com">Intelli Webrunner</vendor>
-    <description>API testing tool window with HTTP, gRPC, and chain execution.</description>
+    <description>API testing tool window with HTTP, gRPC, kafka and chain execution.</description>
     <version>0.15.1</version>
 
     <depends>com.intellij.modules.platform</depends>
@@ -10,10 +10,10 @@
     <depends>com.intellij.java</depends>
 
     <extensions defaultExtensionNs="com.intellij">
-        <applicationService serviceImplementation="com.intelli.webrunner.state.GlobalWebrunnerStateService"/>
+        <applicationService serviceImplementation="com.non_organic_onion.intelli.webrunner.state.GlobalWebrunnerStateService"/>
         <toolWindow id="Intelli Webrunner"
                     anchor="left"
                     icon="/icons/toolWindow.svg"
-                    factoryClass="com.intelli.webrunner.toolwindow.WebrunnerToolWindowFactory"/>
+                    factoryClass="com.non_organic_onion.intelli.webrunner.toolwindow.WebrunnerToolWindowFactory"/>
     </extensions>
 </idea-plugin>

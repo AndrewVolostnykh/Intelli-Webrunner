@@ -1,0 +1,27 @@
+package com.non_organic_onion.intelli.webrunner.util;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+public class JsonUtils {
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    public static String prettyPrint(String body) {
+        if (body == null || body.isBlank()) {
+            return "";
+        }
+        try {
+            Object parsed = MAPPER.readValue(body, Object.class);
+            return MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(parsed);
+        } catch (Exception ignored) {
+            return body;
+        }
+    }
+
+    public static String toJson(Object value) {
+        try {
+            return MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(value);
+        } catch (Exception e) {
+            return String.valueOf(value);
+        }
+    }
+}

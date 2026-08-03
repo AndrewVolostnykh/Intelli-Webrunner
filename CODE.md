@@ -11,6 +11,7 @@ This document maps the main Webrunner features to the packages and classes that 
 `WebrunnerToolWindowPanel` is the main UI container. It wires together:
 
 - Request tree.
+- Left toolbar actions such as Dev Tools and Global Context.
 - Request editor.
 - Response viewer.
 - Execution service.
@@ -32,7 +33,7 @@ Tree actions usually update the model and then ask the state service to persist 
 
 ## Request Editor
 
-### `com.intelli.webrunner.ui.RequestEditorPanel`
+### `ui.com.non_organic_onion.intelli.webrunner.RequestEditorPanel`
 
 `RequestEditorPanel` renders and edits the selected request.
 
@@ -45,7 +46,6 @@ It is responsible for:
 - Send and download button.
 - Stop button.
 - Debug button.
-- Global Context icon button.
 - Body, params, headers, before-script, and after-script tabs.
 - Stress tab.
 - Raw, form-data, and binary body modes.
@@ -54,8 +54,6 @@ It is responsible for:
 - Kafka topic refresh, send, start listening, stop listening, and live response updates.
 - Editor-to-model synchronization.
 - HTTP request action menu, including `Get cURL`.
-
-The Global Context button opens `GlobalContextDialog`.
 
 During HTTP, gRPC, and Kafka send execution, `RequestEditorPanel` disables start buttons and enables
 the stop button until the background request task finishes or is cancelled.
@@ -68,29 +66,51 @@ shows `Not implemented` for gRPC and Kafka request types until stress execution 
 When HTTP Stress is enabled, `RequestEditorPanel` starts a background task and delegates repeated
 HTTP execution to `HttpStressExecutionService`.
 
-### `com.intelli.webrunner.ui.ChainEditorPanel`
+### `ui.com.non_organic_onion.intelli.webrunner.ChainEditorPanel`
 
 `ChainEditorPanel` renders and edits chain requests. Its toolbar contains icon buttons for running,
 stopping, debugging, and stepping to the next chain request, plus a Chain Context icon button for
 viewing the current chain state.
 
-The chain editor has a left work area for the chain request list and logs/current state, and a
+The chain request list footer shows Add, Create, and Remove actions. Add opens a request-tree dialog
+where the user can choose an available non-chain request. `Add` inserts the existing request into
+the chain. `Add Copy` clones the selected request into the same collection as the chain, appends the
+chain name to the cloned request name, and inserts the clone into the chain. `Create` opens the
+standard new-request fields and creates the request in the same collection as the chain before
+inserting it into the chain.
+
+The Chain Context icon opens an editable variables table for chain-level variables. During chain
+execution, placeholder resolution uses request `vars` first, then Chain Context, then Global
+Context. Chain step scripts can access and mutate `chainContext` through the same API as `vars` and
+`globalContext`.
+
+During chain execution, completed steps are indexed by request name and request id. Chain step
+scripts can call `getRequest(nameOrId)` to read a previous step snapshot containing `meta`,
+`configuredRequest`, `rawRequest`, `sentRequest`, `request`, `response`, and `result`.
+Chain step scripts can call `skip(...values)`, `interruptChain(...values)` / `interrupt(...values)`,
+or `proceed()` to control the current step. `skip` marks the step as `Skiped` and continues the
+chain; `interruptChain` marks it as `Interrupted` and stops the chain. The arguments are formatted
+like `log(...)` and printed with chain-control console colors.
+
+The chain editor has a left work area for the chain request list and console-backed logs/current state, and a
 separate right work area with Options, Request, and Result tabs. Options contains Config controls
-for success codes and basic hook execution checkboxes, plus JavaScript editor tabs for run
-conditions and chain hooks. Request contains editor-backed Raw Request, Sent Request, and Response
+for success codes and basic hook execution checkboxes, plus JavaScript editor tabs for chain hooks.
+Request contains editor-backed Raw Request, Sent Request, and Response
 snapshots from the execution pipeline. Result contains editor-backed tabs for body, response
 metadata, headers, cookies, and a body snapshot.
 
 Chain Options, Request, and Result are bound to the selected chain step. Each step persists its own
 success codes, basic hook checkboxes, JavaScript editor content, request snapshots, and last result
 fields. During debug or normal execution, selecting the active chain row also switches the right
-work area to that row's configuration and result.
+work area to that row's configuration and result. Step Options Before Request and After Request
+scripts always run for that step. The Config checkboxes control whether the selected request's own
+before-script, after-script, and stress configuration are also run.
 
 After a chain step executes, the chain list shows a colored runtime badge before the request name.
 The status is `Passed` when the response code is included in that step's Success Codes field and
 `Failed` otherwise. The same row also shows response code, duration, and response body size.
 
-### `com.intelli.webrunner.ui.GlobalContextDialog`
+### `ui.com.non_organic_onion.intelli.webrunner.GlobalContextDialog`
 
 `GlobalContextDialog` implements the Global Context UI. It contains:
 
@@ -101,13 +121,20 @@ The status is `Passed` when the response code is included in that step's Success
 
 It loads and saves global context through `GlobalWebrunnerStateService`.
 
+### `ui.com.non_organic_onion.intelli.webrunner.WebrunnerInfoDialog`
+
+`WebrunnerInfoDialog` shows read-only scripting API help. The scripting page uses an expandable
+tree of logical sections and a detail pane with descriptions and multiple examples for each exposed
+script object/function.
+
 ## Dev Tools
 
-### `com.intelli.webrunner.toolwindow.WebrunnerToolWindowPanel`
+### `toolwindow.com.non_organic_onion.intelli.webrunner.WebrunnerToolWindowPanel`
 
 `WebrunnerToolWindowPanel` owns the Dev Tools toolbar button and menu. The menu opens small utility dialogs for ad hoc developer tasks.
 
-It also opens `SettingsDialog` for reusable header presets and feature flags such as Stress Tests.
+It also opens `SettingsDialog` for reusable header presets, feature flags such as Stress Tests, and
+storage paths.
 
 Current Dev Tools entries include:
 
@@ -121,29 +148,29 @@ Current Dev Tools entries include:
 - Generate UUID
 - DateTime
 
-### `com.intelli.webrunner.ui.JwtDecoderDialog`
+### `ui.com.non_organic_onion.intelli.webrunner.JwtDecoderDialog`
 
 `JwtDecoderDialog` opens the JWT decoder window.
 
-### `com.intelli.webrunner.ui.JwtDecoderPanel`
+### `ui.com.non_organic_onion.intelli.webrunner.JwtDecoderPanel`
 
 `JwtDecoderPanel` provides the JWT decoder UI. It accepts a soft-wrapped JWT or `Bearer` token, displays expiry derived from the standard `exp` claim, and lets users edit decoded JSON before re-signing HMAC JWTs with a secret.
 
-`com.intelli.webrunner.util.JwtTokenService` decodes JWT header/payload JSON, evaluates `exp`, and creates signatures for `HS256`, `HS384`, and `HS512` tokens.
+`util.com.non_organic_onion.intelli.webrunner.JwtTokenService` decodes JWT header/payload JSON, evaluates `exp`, and creates signatures for `HS256`, `HS384`, and `HS512` tokens.
 
-### `com.intelli.webrunner.ui.Base64ToolDialog`
+### `ui.com.non_organic_onion.intelli.webrunner.Base64ToolDialog`
 
 `Base64ToolDialog` opens the Base64 utility window.
 
-### `com.intelli.webrunner.ui.Base64ToolPanel`
+### `ui.com.non_organic_onion.intelli.webrunner.Base64ToolPanel`
 
 `Base64ToolPanel` provides two soft-wrapped text areas for Base64 conversion. It can decode Base64 to content or swap direction and encode content to Base64.
 
-### `com.intelli.webrunner.ui.JsonToolDialog`
+### `ui.com.non_organic_onion.intelli.webrunner.JsonToolDialog`
 
 `JsonToolDialog` opens the JSON utility window.
 
-### `com.intelli.webrunner.ui.JsonToolPanel`
+### `ui.com.non_organic_onion.intelli.webrunner.JsonToolPanel`
 
 `JsonToolPanel` provides a soft-wrapped IntelliJ `EditorTextField` JSON editor with Minify and
 Beautify actions backed by Jackson parsing and formatting.
@@ -156,59 +183,59 @@ Its three-dot actions menu contains:
 Both actions apply literal text transformations to the current JSON editor contents through
 `JsonTextOperations`.
 
-### `com.intelli.webrunner.ui.JsonRemoveDialog`
+### `ui.com.non_organic_onion.intelli.webrunner.JsonRemoveDialog`
 
 `JsonRemoveDialog` owns the separate Remove window and closes it after the operation is submitted.
 
-### `com.intelli.webrunner.ui.JsonRemovePanel`
+### `ui.com.non_organic_onion.intelli.webrunner.JsonRemovePanel`
 
 `JsonRemovePanel` contains the text input and Remove button used to remove all matching literal text
 from the JSON editor.
 
-### `com.intelli.webrunner.ui.JsonReplaceDialog`
+### `ui.com.non_organic_onion.intelli.webrunner.JsonReplaceDialog`
 
 `JsonReplaceDialog` owns the separate Replace window and closes it after the operation is submitted.
 
-### `com.intelli.webrunner.ui.JsonReplacePanel`
+### `ui.com.non_organic_onion.intelli.webrunner.JsonReplacePanel`
 
 `JsonReplacePanel` contains the target and replacement inputs and the Replace button used to replace
 all matching literal text in the JSON editor.
 
-### `com.intelli.webrunner.ui.TextToolDialog`
+### `ui.com.non_organic_onion.intelli.webrunner.TextToolDialog`
 
 `TextToolDialog` opens the plain-text utility window.
 
-### `com.intelli.webrunner.ui.TextToolPanel`
+### `ui.com.non_organic_onion.intelli.webrunner.TextToolPanel`
 
 `TextToolPanel` provides a soft-wrapped text editor with whitespace minification, period-based
 line-break formatting, and literal Remove and Replace actions.
 
-### `com.intelli.webrunner.ui.HashToolDialog`
+### `ui.com.non_organic_onion.intelli.webrunner.HashToolDialog`
 
 `HashToolDialog` opens the Hash utility window.
 
-### `com.intelli.webrunner.ui.HashToolPanel`
+### `ui.com.non_organic_onion.intelli.webrunner.HashToolPanel`
 
 `HashToolPanel` provides two soft-wrapped text areas for input and hash output, a hash algorithm
 selector, an optional HMAC secret input, and a Hash action.
 
-`com.intelli.webrunner.util.HashingService` hashes UTF-8 text with standard JDK `MessageDigest`
+`util.com.non_organic_onion.intelli.webrunner.HashingService` hashes UTF-8 text with standard JDK `MessageDigest`
 algorithms or, when a non-empty secret is provided, with the matching `javax.crypto.Mac` HMAC
 algorithm.
 
-### `com.intelli.webrunner.ui.CompareToolDialog`
+### `ui.com.non_organic_onion.intelli.webrunner.CompareToolDialog`
 
 `CompareToolDialog` opens the Compare utility input window.
 
-### `com.intelli.webrunner.ui.CompareToolPanel`
+### `ui.com.non_organic_onion.intelli.webrunner.CompareToolPanel`
 
 `CompareToolPanel` provides left and right soft-wrapped text inputs and opens IntelliJ's Diff Viewer with `DiffManager` and `SimpleDiffRequest`. The diff is opened with `DiffDialogHints.FRAME` so it appears in a separate IntelliJ window instead of an editor tab.
 
-### `com.intelli.webrunner.ui.UuidGeneratorDialog`
+### `ui.com.non_organic_onion.intelli.webrunner.UuidGeneratorDialog`
 
 `UuidGeneratorDialog` opens the UUID generator window.
 
-### `com.intelli.webrunner.ui.UuidGeneratorPanel`
+### `ui.com.non_organic_onion.intelli.webrunner.UuidGeneratorPanel`
 
 `UuidGeneratorPanel` displays a generated UUID and provides Generate and Copy actions.
 
@@ -249,7 +276,7 @@ These model objects are used by the request tree, editor panel, execution layer,
 
 ## Execution
 
-### `com.intelli.webrunner.execution.RequestExecutionService`
+### `execution.com.non_organic_onion.intelli.webrunner.RequestExecutionService`
 
 `RequestExecutionService` is the main runtime entry point for normal request execution.
 
@@ -346,7 +373,7 @@ Kafka listener responses are historical. New consumed messages are appended to t
 
 ## Scripting
 
-### `com.intelli.webrunner.script.ScriptRuntime`
+### `script.com.non_organic_onion.intelli.webrunner.ScriptRuntime`
 
 `ScriptRuntime` executes JavaScript through Rhino.
 
@@ -361,6 +388,11 @@ It exposes these globals to scripts:
 - `log`
 - `logAndReturn`
 - `assert`
+- `getRequest`
+- `skip`
+- `interruptChain`
+- `interrupt`
+- `proceed`
 - `uuid`
 - `stringify`
 - `jsonify`
@@ -385,7 +417,7 @@ It exposes these globals to scripts:
 
 It is used by normal execution and debug execution for before-request, after-response, and inline debug scripts.
 
-### `com.intelli.webrunner.script.ScriptContext`
+### `script.com.non_organic_onion.intelli.webrunner.ScriptContext`
 
 `ScriptContext` carries runtime objects into script execution.
 
@@ -396,9 +428,12 @@ It stores:
 - Current response object.
 - `vars` store.
 - `globalContext` store.
+- `chainContext` store for chain step execution.
+- Chain request snapshots exposed through `getRequest`.
+- Chain flow control exposed through `skip`, `interruptChain`, `interrupt`, and `proceed`.
 - Logging sink.
 
-### `com.intelli.webrunner.script.VarsStore`
+### `script.com.non_organic_onion.intelli.webrunner.VarsStore`
 
 `VarsStore` is the key/value variable store used by both request variables and global context variables.
 
@@ -411,7 +446,7 @@ It provides the JavaScript-facing API:
 - `clear`
 - `all`
 
-### `com.intelli.webrunner.script.GlobalContextRuntime`
+### `script.com.non_organic_onion.intelli.webrunner.GlobalContextRuntime`
 
 `GlobalContextRuntime` bridges persistent global context state and the runtime `VarsStore`.
 
@@ -429,7 +464,7 @@ It is responsible for:
 
 ## Placeholder Resolution
 
-### `com.intelli.webrunner.util.TemplateEngine`
+### `util.com.non_organic_onion.intelli.webrunner.TemplateEngine`
 
 `TemplateEngine` replaces `{{name}}` placeholders in request data.
 
@@ -447,7 +482,7 @@ Execution code passes merged variables where `vars` overrides `globalContext`.
 
 ## Debugging
 
-### `com.intelli.webrunner.debug.DebugCallSession`
+### `debug.com.non_organic_onion.intelli.webrunner.DebugCallSession`
 
 `DebugCallSession` implements step-by-step request and chain debugging.
 
@@ -464,13 +499,17 @@ It handles:
 - Maintaining shared chain `vars`.
 - Moving through chain child requests.
 
+Its Debug Call dialog renders step output through an IntelliJ `ConsoleView` instead of a plain text
+area. Step headers, field labels, and values use separate console content types so the debug output
+is color-coded.
+
 ### `com.intelli.webrunner.debug`
 
 Other debug package classes represent debug stages, debug state, and debug UI coordination.
 
 ## Global Context State
 
-### `com.intelli.webrunner.state.GlobalContextState`
+### `state.com.non_organic_onion.intelli.webrunner.GlobalContextState`
 
 `GlobalContextState` is the persisted model for project-level global context.
 
@@ -482,7 +521,7 @@ It stores:
 - Variable values.
 - Global JavaScript code.
 
-### `com.intelli.webrunner.state.WebrunnerState`
+### `state.com.non_organic_onion.intelli.webrunner.WebrunnerState`
 
 `WebrunnerState` is the root persisted project state.
 
@@ -493,13 +532,19 @@ It stores:
 - Global context.
 - Other plugin-level persisted fields.
 
-### `com.intelli.webrunner.state.GlobalWebrunnerStateService`
+### `state.com.non_organic_onion.intelli.webrunner.GlobalWebrunnerStateService`
 
 `GlobalWebrunnerStateService` is the IntelliJ persistent state service.
+
+The IntelliJ settings file stores plugin settings, including the path to the active collections
+JSON file. Collection data itself is stored in that JSON file; by default it is placed under the
+IntelliJ config directory at `intelli-webrunner/collections.json`.
 
 It is responsible for:
 
 - Loading state.
+- Loading and saving the active collections JSON file.
+- Remembering the active collections file path.
 - Saving request tree changes.
 - Cloning requests with their details, status, and chain state.
 - Saving global context.
@@ -536,21 +581,21 @@ generated name is `<METHOD> <URL>`.
 `RequestEditorPanel` adds `Get cURL` to the HTTP request action menu. It exports the current method,
 URL, enabled headers and parameters, and the selected raw, form-data, or binary body.
 
-### `com.intelli.webrunner.ui.CurlImportDialog`
+### `ui.com.non_organic_onion.intelli.webrunner.CurlImportDialog`
 
 `CurlImportDialog` contains the optional request-name field and multiline cURL command input.
 
-### `com.intelli.webrunner.util.CurlCommandParser`
+### `util.com.non_organic_onion.intelli.webrunner.CurlCommandParser`
 
 `CurlCommandParser` tokenizes and parses common cURL commands, including multiline commands,
 single-quoted and double-quoted values, explicit methods, headers, query parameters, raw data,
 form-data, binary files, `--url`, and GET data.
 
-### `com.intelli.webrunner.util.CurlRequest`
+### `util.com.non_organic_onion.intelli.webrunner.CurlRequest`
 
 `CurlRequest` is the parsed cURL data model used to populate a newly created HTTP request.
 
-### `com.intelli.webrunner.util.CurlCommandBuilder`
+### `util.com.non_organic_onion.intelli.webrunner.CurlCommandBuilder`
 
 `CurlCommandBuilder` generates a shell-compatible cURL command from the current HTTP request. It
 supports raw bodies, form-data, binary files, enabled headers, and query parameters.
