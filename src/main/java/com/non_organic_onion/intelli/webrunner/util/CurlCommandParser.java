@@ -25,6 +25,7 @@ public final class CurlCommandParser {
 		CurlRequest request = new CurlRequest();
 		String explicitMethod = null;
 		boolean useGet = false;
+		boolean hasUrlEncodedContentType = false;
 		List<String> dataParts = new ArrayList<>();
 
 		for (int index = 1; index < tokens.size(); index++) {
@@ -36,11 +37,17 @@ public final class CurlCommandParser {
 			} else if (token.startsWith("-X") && token.length() > 2) {
 				explicitMethod = token.substring(2);
 			} else if ("-H".equals(token) || "--header".equals(token)) {
-				request.headers.add(parseHeader(requireValue(tokens, ++index, token)));
+				HeaderEntryState header = parseHeader(requireValue(tokens, ++index, token));
+				hasUrlEncodedContentType = hasUrlEncodedContentType || isUrlEncodedContentType(header);
+				request.headers.add(header);
 			} else if (token.startsWith("--header=")) {
-				request.headers.add(parseHeader(token.substring("--header=".length())));
+				HeaderEntryState header = parseHeader(token.substring("--header=".length()));
+				hasUrlEncodedContentType = hasUrlEncodedContentType || isUrlEncodedContentType(header);
+				request.headers.add(header);
 			} else if (token.startsWith("-H") && token.length() > 2) {
-				request.headers.add(parseHeader(token.substring(2)));
+				HeaderEntryState header = parseHeader(token.substring(2));
+				hasUrlEncodedContentType = hasUrlEncodedContentType || isUrlEncodedContentType(header);
+				request.headers.add(header);
 			} else if (isDataOption(token)) {
 				String value = requireValue(tokens, ++index, token);
 				appendData(request, dataParts, token, value);
@@ -81,6 +88,9 @@ public final class CurlCommandParser {
 			String data = String.join("&", dataParts);
 			if (useGet) {
 				request.params.addAll(UrlParamUtils.parseQueryParams("?" + data));
+			} else if (hasUrlEncodedContentType || hasUrlEncodedDataOption(tokens)) {
+				request.payloadType = "X_WWW_FORM_URLENCODED";
+				request.formData.addAll(parseUrlEncodedFormData(data));
 			} else if (!"BINARY".equals(request.payloadType)) {
 				request.body = data;
 			}
@@ -88,6 +98,15 @@ public final class CurlCommandParser {
 		request.params = UrlParamUtils.mergeParamsWithUrl(request.params, request.url);
 		request.method = resolveMethod(explicitMethod, useGet, request);
 		return request;
+	}
+
+	private static boolean hasUrlEncodedDataOption(List<String> tokens) {
+		for (String token : tokens) {
+			if ("--data-urlencode".equals(token) || token.startsWith("--data-urlencode=")) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	static List<String> tokenize(String command) {
@@ -177,6 +196,28 @@ public final class CurlCommandParser {
 		}
 		header.enabled = true;
 		return header;
+	}
+
+	private static boolean isUrlEncodedContentType(HeaderEntryState header) {
+		if (header == null || header.name == null || header.value == null) {
+			return false;
+		}
+		return "Content-Type".equalsIgnoreCase(header.name.trim())
+			&& header.value.toLowerCase(Locale.ROOT).contains("application/x-www-form-urlencoded");
+	}
+
+	private static List<FormEntryState> parseUrlEncodedFormData(String data) {
+		List<FormEntryState> entries = new ArrayList<>();
+		for (HeaderEntryState param : UrlParamUtils.parseQueryParams("?" + (data == null ? "" : data))) {
+			FormEntryState entry = new FormEntryState();
+			entry.id = UUID.randomUUID().toString();
+			entry.name = param.name;
+			entry.value = param.value;
+			entry.enabled = param.enabled;
+			entry.file = false;
+			entries.add(entry);
+		}
+		return entries;
 	}
 
 	private static FormEntryState parseForm(String value, boolean forceString) {

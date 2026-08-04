@@ -6,6 +6,7 @@ import com.non_organic_onion.intelli.webrunner.state.HeaderEntryState;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -50,6 +51,9 @@ public class HttpExecutor {
             String boundary = "WebrunnerBoundary" + UUID.randomUUID();
             publisher = buildMultipartPublisher(formData, boundary);
             ensureHeader(mutableHeaders, "Content-Type", "multipart/form-data; boundary=" + boundary);
+        } else if (resolved == HttpPayloadType.X_WWW_FORM_URLENCODED) {
+            publisher = HttpRequest.BodyPublishers.ofString(buildUrlEncodedBody(formData));
+            ensureHeader(mutableHeaders, "Content-Type", "application/x-www-form-urlencoded");
         } else if (resolved == HttpPayloadType.BINARY) {
             if (binaryFilePath == null || binaryFilePath.isBlank()) {
                 publisher = HttpRequest.BodyPublishers.noBody();
@@ -102,6 +106,9 @@ public class HttpExecutor {
             String boundary = "WebrunnerBoundary" + UUID.randomUUID();
             publisher = buildMultipartPublisher(formData, boundary);
             ensureHeader(mutableHeaders, "Content-Type", "multipart/form-data; boundary=" + boundary);
+        } else if (resolved == HttpPayloadType.X_WWW_FORM_URLENCODED) {
+            publisher = HttpRequest.BodyPublishers.ofString(buildUrlEncodedBody(formData));
+            ensureHeader(mutableHeaders, "Content-Type", "application/x-www-form-urlencoded");
         } else if (resolved == HttpPayloadType.BINARY) {
             if (binaryFilePath == null || binaryFilePath.isBlank()) {
                 publisher = HttpRequest.BodyPublishers.noBody();
@@ -149,6 +156,29 @@ public class HttpExecutor {
         entry.value = value;
         entry.enabled = true;
         headers.add(entry);
+    }
+
+    static String buildUrlEncodedBody(List<FormEntryState> entries) {
+        if (entries == null || entries.isEmpty()) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder();
+        for (FormEntryState entry : entries) {
+            if (entry == null || !entry.enabled) {
+                continue;
+            }
+            String name = entry.name == null ? "" : entry.name.trim();
+            if (name.isBlank()) {
+                continue;
+            }
+            if (builder.length() > 0) {
+                builder.append('&');
+            }
+            builder.append(URLEncoder.encode(name, StandardCharsets.UTF_8));
+            builder.append('=');
+            builder.append(URLEncoder.encode(entry.value == null ? "" : entry.value, StandardCharsets.UTF_8));
+        }
+        return builder.toString();
     }
 
     private HttpRequest.BodyPublisher buildMultipartPublisher(

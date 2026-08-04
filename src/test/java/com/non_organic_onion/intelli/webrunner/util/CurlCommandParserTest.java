@@ -55,4 +55,36 @@ class CurlCommandParserTest {
 		assertEquals("q", get.params.get(0).name);
 		assertEquals("hello world", get.params.get(0).value);
 	}
+
+	@Test
+	void parsesUrlEncodedPayloadFromDataUrlencode() {
+		CurlRequest request = CurlCommandParser.parse(
+			"curl https://example.com/token --data-urlencode 'name=Ada Lovelace' --data-urlencode 'scope=read write'"
+		);
+
+		assertEquals("POST", request.method);
+		assertEquals("X_WWW_FORM_URLENCODED", request.payloadType);
+		assertEquals(2, request.formData.size());
+		assertEquals("name", request.formData.get(0).name);
+		assertEquals("Ada Lovelace", request.formData.get(0).value);
+		assertEquals("scope", request.formData.get(1).name);
+		assertEquals("read write", request.formData.get(1).value);
+		assertEquals("", request.body);
+	}
+
+	@Test
+	void parsesUrlEncodedPayloadFromContentTypeHeader() {
+		CurlRequest request = CurlCommandParser.parse(
+			"curl https://example.com/token -H 'Content-Type: application/x-www-form-urlencoded' -d 'a=1&b=hello+world'"
+		);
+
+		assertEquals("POST", request.method);
+		assertEquals("X_WWW_FORM_URLENCODED", request.payloadType);
+		assertEquals(2, request.formData.size());
+		assertEquals("a", request.formData.get(0).name);
+		assertEquals("1", request.formData.get(0).value);
+		assertEquals("b", request.formData.get(1).name);
+		assertEquals("hello world", request.formData.get(1).value);
+		assertEquals("", request.body);
+	}
 }

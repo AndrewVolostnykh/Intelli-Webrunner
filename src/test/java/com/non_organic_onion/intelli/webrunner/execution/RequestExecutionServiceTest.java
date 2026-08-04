@@ -175,6 +175,42 @@ class RequestExecutionServiceTest {
 	}
 
 	@Test
+	void executeWithScriptsPassesTemplatedUrlEncodedPayload() {
+		GlobalWebrunnerStateService stateService = new GlobalWebrunnerStateService();
+		GlobalContextState globalContext = new GlobalContextState();
+		globalContext.variables = new ArrayList<>(List.of(variable("name", "Ada Lovelace", true)));
+		stateService.saveGlobalContext(globalContext);
+		CapturingHttpExecutor httpExecutor = new CapturingHttpExecutor();
+		RequestExecutionService service = httpService(httpExecutor, stateService);
+
+		ExecutionResult result = service.executeWithScripts(
+			"POST",
+			"https://api.test/token",
+			List.of(),
+			List.of(),
+			"",
+			"request.formData.push({name: 'scope', value: 'read write', enabled: true, file: false});",
+			"",
+			false,
+			null,
+			"X_WWW_FORM_URLENCODED",
+			List.of(
+				form("grant_type", "password", true, false),
+				form("username", "{{name}}", true, false),
+				form("disabled", "ignored", false, false)
+			),
+			""
+		);
+
+		assertEquals(200, result.statusCode);
+		assertEquals(HttpPayloadType.X_WWW_FORM_URLENCODED, httpExecutor.payloadType);
+		assertEquals("password", formValue(httpExecutor.formData, "grant_type"));
+		assertEquals("Ada Lovelace", formValue(httpExecutor.formData, "username"));
+		assertEquals("read write", formValue(httpExecutor.formData, "scope"));
+		assertFalse(httpExecutor.formData.stream().anyMatch(entry -> "disabled".equals(entry.name) && entry.enabled));
+	}
+
+	@Test
 	void executeWithScriptsPassesTemplatedBinaryPayloadPath() {
 		GlobalWebrunnerStateService stateService = new GlobalWebrunnerStateService();
 		GlobalContextState globalContext = new GlobalContextState();

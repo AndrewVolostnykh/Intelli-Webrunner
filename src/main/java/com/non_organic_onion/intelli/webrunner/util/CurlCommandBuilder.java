@@ -47,6 +47,11 @@ public final class CurlCommandBuilder {
 
 		if (resolvedPayloadType == HttpPayloadType.FORM_DATA) {
 			appendFormData(command, formData);
+		} else if (resolvedPayloadType == HttpPayloadType.X_WWW_FORM_URLENCODED) {
+			if (!hasContentType) {
+				command.append(" -H ").append(shellQuote("Content-Type: application/x-www-form-urlencoded"));
+			}
+			appendUrlEncodedData(command, formData);
 		} else if (resolvedPayloadType == HttpPayloadType.BINARY) {
 			if (!hasContentType) {
 				command.append(" -H ").append(shellQuote("Content-Type: application/octet-stream"));
@@ -77,6 +82,19 @@ public final class CurlCommandBuilder {
 			String value = safe(entry.value);
 			String formValue = entry.name.trim() + "=" + (entry.file ? "@" : "") + value;
 			command.append(" -F ").append(shellQuote(formValue));
+		}
+	}
+
+	private static void appendUrlEncodedData(StringBuilder command, List<FormEntryState> formData) {
+		if (formData == null) {
+			return;
+		}
+		for (FormEntryState entry : formData) {
+			if (entry == null || !entry.enabled || entry.name == null || entry.name.isBlank()) {
+				continue;
+			}
+			String formValue = entry.name.trim() + "=" + safe(entry.value);
+			command.append(" --data-urlencode ").append(shellQuote(formValue));
 		}
 	}
 

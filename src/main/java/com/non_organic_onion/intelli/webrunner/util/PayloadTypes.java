@@ -17,6 +17,11 @@ public final class PayloadTypes {
 		if (normalized.equalsIgnoreCase("FORM_DATA") || normalized.equalsIgnoreCase("Form Data")) {
 			return "Form Data";
 		}
+		if (normalized.equalsIgnoreCase("X_WWW_FORM_URLENCODED")
+			|| normalized.equalsIgnoreCase("x-www-form-urlencoded")
+			|| normalized.equalsIgnoreCase("application/x-www-form-urlencoded")) {
+			return "x-www-form-urlencoded";
+		}
 		if (normalized.equalsIgnoreCase("BINARY") || normalized.equalsIgnoreCase("Binary")) {
 			return "Binary";
 		}
@@ -28,6 +33,9 @@ public final class PayloadTypes {
 		if ("Form Data".equals(label)) {
 			return "FORM_DATA";
 		}
+		if ("x-www-form-urlencoded".equals(label)) {
+			return "X_WWW_FORM_URLENCODED";
+		}
 		if ("Binary".equals(label)) {
 			return "BINARY";
 		}
@@ -38,6 +46,8 @@ public final class PayloadTypes {
 		String normalized = value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
 		return switch (normalized) {
 			case "FORM_DATA" -> HttpPayloadType.FORM_DATA;
+			case "X_WWW_FORM_URLENCODED", "X-WWW-FORM-URLENCODED", "APPLICATION/X-WWW-FORM-URLENCODED" ->
+				HttpPayloadType.X_WWW_FORM_URLENCODED;
 			case "BINARY" -> HttpPayloadType.BINARY;
 			default -> HttpPayloadType.RAW;
 		};

@@ -124,7 +124,7 @@ public final class RequestEditorPanel {
 	private final JComboBox<String> httpMethodCombo =
 		new JComboBox<>(new String[] {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"});
 	private final JComboBox<String> httpPayloadCombo =
-		new JComboBox<>(new String[] {"Raw", "Form Data", "Binary"});
+		new JComboBox<>(new String[] {"Raw", "Form Data", "x-www-form-urlencoded", "Binary"});
 	private final JBTextField httpUrlField = new JBTextField();
 	private final JButton httpSendButton = new JButton(AllIcons.Actions.Execute);
 	private final JButton httpSendDownloadButton = new JButton(AllIcons.Actions.Download);
@@ -841,7 +841,7 @@ public final class RequestEditorPanel {
 
 	private void switchPayloadType() {
 		String label = PayloadTypes.resolveLabel(httpPayloadCombo.getSelectedItem());
-		if ("Form Data".equals(label)) {
+		if ("Form Data".equals(label) || "x-www-form-urlencoded".equals(label)) {
 			bodyCards.show(bodyPanel, "form");
 		} else if ("Binary".equals(label)) {
 			bodyCards.show(bodyPanel, "binary");

@@ -77,6 +77,31 @@ class CurlCommandBuilderTest {
 		);
 	}
 
+	@Test
+	void buildsUrlEncodedRequest() {
+		FormEntryState name = form("name", "Ada Lovelace", false, true);
+		FormEntryState scope = form("scope", "read write", false, true);
+		FormEntryState disabled = form("ignored", "value", false, false);
+
+		String curl = CurlCommandBuilder.build(
+			"POST",
+			"https://example.com/token",
+			List.of(),
+			List.of(),
+			"",
+			"X_WWW_FORM_URLENCODED",
+			List.of(name, scope, disabled),
+			""
+		);
+
+		assertEquals(
+			"curl -X 'POST' -H 'Content-Type: application/x-www-form-urlencoded' "
+				+ "--data-urlencode 'name=Ada Lovelace' --data-urlencode 'scope=read write' "
+				+ "'https://example.com/token'",
+			curl
+		);
+	}
+
 	private HeaderEntryState header(String name, String value, boolean enabled) {
 		HeaderEntryState entry = new HeaderEntryState();
 		entry.name = name;
