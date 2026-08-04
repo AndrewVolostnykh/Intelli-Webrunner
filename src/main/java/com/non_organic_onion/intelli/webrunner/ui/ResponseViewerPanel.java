@@ -51,26 +51,29 @@ public final class ResponseViewerPanel {
 	private final EditorTextField responseBodyArea;
 	private final EditorTextField responseHeadersArea;
 	private final EditorTextField responseCookiesArea;
+	private final JComponent responseCookiesComponent;
 	private final ConsoleView responseLogsArea;
 	private final JPanel root = new JPanel(new BorderLayout());
 	private String responseLogsText = "";
+	private boolean responseCookiesVisible = true;
 	private Timer elapsedTimer;
 	private long elapsedStartedAtMillis;
 
 	public ResponseViewerPanel(Project project, Runnable onResponsePersisted) {
 		this.project = project;
 		this.onResponsePersisted = onResponsePersisted;
-		this.responseBodyArea = new EditorTextField("", project, JsonFileType.INSTANCE);
-		this.responseHeadersArea = new EditorTextField("", project, JsonFileType.INSTANCE);
-		this.responseCookiesArea = new EditorTextField("", project, JsonFileType.INSTANCE);
+		this.responseBodyArea = EditorThemeSupport.configure(new EditorTextField("", project, JsonFileType.INSTANCE));
+		this.responseHeadersArea = EditorThemeSupport.configure(new EditorTextField("", project, JsonFileType.INSTANCE));
+		this.responseCookiesArea = EditorThemeSupport.configure(new EditorTextField("", project, JsonFileType.INSTANCE));
 		this.responseLogsArea = TextConsoleBuilderFactory.getInstance().createBuilder(project).getConsole();
 		this.responseBodyArea.setOneLineMode(false);
 		this.responseHeadersArea.setOneLineMode(false);
 		this.responseCookiesArea.setOneLineMode(false);
+		this.responseCookiesComponent = new JBScrollPane(responseCookiesArea);
 
 		responseTabs.add("Response", new JBScrollPane(responseBodyArea));
 		responseTabs.add("Response Headers", new JBScrollPane(responseHeadersArea));
-		responseTabs.add("Cookies", new JBScrollPane(responseCookiesArea));
+		responseTabs.add("Cookies", responseCookiesComponent);
 		responseTabs.add("Logs", responseLogsArea.getComponent());
 
 		responseStatusLabel.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
@@ -88,6 +91,23 @@ public final class ResponseViewerPanel {
 
 	public JTabbedPane getTabs() {
 		return responseTabs;
+	}
+
+	public void setCookiesVisible(boolean visible) {
+		if (responseCookiesVisible == visible) {
+			return;
+		}
+		responseCookiesVisible = visible;
+		int cookiesIndex = responseTabs.indexOfComponent(responseCookiesComponent);
+		if (visible) {
+			if (cookiesIndex < 0) {
+				responseTabs.insertTab("Cookies", null, responseCookiesComponent, null, Math.min(2, responseTabs.getTabCount()));
+			}
+			return;
+		}
+		if (cookiesIndex >= 0) {
+			responseTabs.removeTabAt(cookiesIndex);
+		}
 	}
 
 	public EditorTextField getBodyField() {
@@ -220,20 +240,28 @@ public final class ResponseViewerPanel {
 		JTabbedPane tabs = new JTabbedPane();
 
 		EditorTextField bodyField =
-			new EditorTextField(responseBodyArea.getDocument(), project, JsonFileType.INSTANCE, false, false);
+			EditorThemeSupport.configure(
+				new EditorTextField(responseBodyArea.getDocument(), project, JsonFileType.INSTANCE, false, false)
+			);
 		bodyField.setOneLineMode(false);
 		EditorTextField headersField =
-			new EditorTextField(responseHeadersArea.getDocument(), project, JsonFileType.INSTANCE, false, false);
+			EditorThemeSupport.configure(
+				new EditorTextField(responseHeadersArea.getDocument(), project, JsonFileType.INSTANCE, false, false)
+			);
 		headersField.setOneLineMode(false);
 		EditorTextField cookiesField =
-			new EditorTextField(responseCookiesArea.getDocument(), project, JsonFileType.INSTANCE, false, false);
+			EditorThemeSupport.configure(
+				new EditorTextField(responseCookiesArea.getDocument(), project, JsonFileType.INSTANCE, false, false)
+			);
 		cookiesField.setOneLineMode(false);
 		ConsoleView logsArea = TextConsoleBuilderFactory.getInstance().createBuilder(project).getConsole();
 		printLogs(logsArea, responseLogsText);
 
 		tabs.add("Response", new JBScrollPane(bodyField));
 		tabs.add("Response Headers", new JBScrollPane(headersField));
-		tabs.add("Cookies", new JBScrollPane(cookiesField));
+		if (responseCookiesVisible) {
+			tabs.add("Cookies", new JBScrollPane(cookiesField));
+		}
 		tabs.add("Logs", logsArea.getComponent());
 
 		dialog.getContentPane().add(tabs);

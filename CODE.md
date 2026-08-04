@@ -21,6 +21,10 @@ This document maps the main Webrunner features to the packages and classes that 
 
 It owns the high-level event flow between selected tree nodes, editor changes, request execution, response display, and state persistence.
 
+When focus is inside the Webrunner tool window, `WebrunnerToolWindowPanel` handles plugin-local
+hotkeys before embedded editors consume them: `Ctrl+Enter` runs the selected request or advances a
+debug chain, and `Alt+1` moves focus to the request tree.
+
 ## Request Tree
 
 ### `com.intelli.webrunner.ui`
@@ -53,18 +57,26 @@ It is responsible for:
 - Kafka listen params such as offset strategy.
 - Kafka topic refresh, send, start listening, stop listening, and live response updates.
 - Editor-to-model synchronization.
-- HTTP request action menu, including `Get cURL`.
+- HTTP request action menu.
+
+Kafka Listen uses a reduced request tab set: it hides `Body`, renames `Before Request` to
+`On Message`, and hides `After Request`.
+
+For Kafka Listen, `On Message` runs once for every consumed record before the message is appended to
+the listener response history. The script receives the consumed record as both `message` and
+`response`, receives `request`/`rawRequest` with the message body and headers, keeps `vars` for the
+active listener session, and can read or mutate `globalContext`.
 
 During HTTP, gRPC, and Kafka send execution, `RequestEditorPanel` disables start buttons and enables
 the stop button until the background request task finishes or is cancelled.
-
-For HTTP requests, `Get cURL` reads the current editor state, generates a cURL command through
-`CurlCommandBuilder`, copies it to the system clipboard, and reports the result in the response log.
 
 `StressSettingsPanel` implements the Stress tab UI. It shows HTTP stress configuration fields and
 shows `Not implemented` for gRPC and Kafka request types until stress execution is implemented.
 When HTTP Stress is enabled, `RequestEditorPanel` starts a background task and delegates repeated
 HTTP execution to `HttpStressExecutionService`.
+
+`EditorThemeSupport` applies the current IntelliJ UI theme colors to embedded `EditorTextField`
+instances used for request bodies, scripts, response viewers, chain editors, and context dialogs.
 
 ### `ui.com.non_organic_onion.intelli.webrunner.ChainEditorPanel`
 
@@ -573,13 +585,14 @@ Webrunner JSON preserves request collections and global context. OpenAPI support
 
 ### cURL import and export
 
-`WebrunnerToolWindowPanel` adds `Use cURL` to the request-tree three-dot menu. The action opens
+`WebrunnerToolWindowPanel` adds `Use cURL` to the request-tree context menu. The action opens
 `CurlImportDialog`, parses the entered command, creates an HTTP request in the selected folder, and
 opens the created request. The dialog also accepts an optional request name; when it is empty, the
 generated name is `<METHOD> <URL>`.
 
-`RequestEditorPanel` adds `Get cURL` to the HTTP request action menu. It exports the current method,
-URL, enabled headers and parameters, and the selected raw, form-data, or binary body.
+`WebrunnerToolWindowPanel` adds `Get cURL` to the HTTP request context menu in the request tree. It
+exports the current method, URL, enabled headers and parameters, and the selected raw, form-data, or
+binary body through `CurlCommandBuilder`, then copies the command to the system clipboard.
 
 ### `ui.com.non_organic_onion.intelli.webrunner.CurlImportDialog`
 

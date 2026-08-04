@@ -39,6 +39,7 @@ public class JsonBodyEditorField extends EditorTextField {
             settings.setUseSoftWraps(true);
             editor.setVerticalScrollbarVisible(true);
             editor.setHorizontalScrollbarVisible(false);
+            EditorThemeSupport.applyEditorColors(editor);
             editor.putUserData(JSON_BODY_EDITOR, Boolean.TRUE);
             ensureTypedHandler();
         });

@@ -100,7 +100,8 @@ public final class GlobalContextDialog {
 	}
 
 	private static EditorTextField createScriptField(Project project) {
-		EditorTextField scriptField = new EditorTextField("", project, resolveScriptFileType());
+		EditorTextField scriptField =
+			EditorThemeSupport.configure(new EditorTextField("", project, resolveScriptFileType()));
 		scriptField.setOneLineMode(false);
 		return scriptField;
 	}

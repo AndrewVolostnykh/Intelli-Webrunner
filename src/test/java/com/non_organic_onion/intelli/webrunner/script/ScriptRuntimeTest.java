@@ -1,6 +1,7 @@
 package com.non_organic_onion.intelli.webrunner.script;
 
 import com.non_organic_onion.intelli.webrunner.execution.HttpExecutionResponse;
+import com.non_organic_onion.intelli.webrunner.kafka.KafkaListenMessage;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -225,6 +226,33 @@ class ScriptRuntimeTest {
 		);
 
 		assertEquals("201.0 application/json 7.0 true", logs.get(0));
+	}
+
+	@Test
+	void kafkaListenMessageIsAvailableAsMessageAndResponse() {
+		List<String> logs = new ArrayList<>();
+		KafkaListenMessage message = new KafkaListenMessage();
+		message.topic = "orders";
+		message.partition = 2;
+		message.offset = 42;
+		message.timestamp = 1000;
+		message.key = "order-1";
+		message.body = "{\"id\":7}";
+		message.headers = List.of(new KafkaListenMessage.Header("trace-id", "abc"));
+
+		runtime.runScript(
+			"""
+				log(message.topic, message.partition, message.offset, message.key, message.body.id);
+				log(response.headers[0].name, response.headers[0].value);
+				log(request.body.id);
+				vars.set('lastOffset', message.offset);
+				""",
+			context(new VarsStore(), request(message.body), request(message.body), message, logs)
+		);
+
+		assertEquals("orders 2.0 42.0 order-1 7.0", logs.get(0));
+		assertEquals("trace-id abc", logs.get(1));
+		assertEquals("7.0", logs.get(2));
 	}
 
 	@Test

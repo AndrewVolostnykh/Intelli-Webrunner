@@ -169,7 +169,7 @@ public final class ChainEditorPanel {
 		this.onRequestsChanged = onRequestsChanged;
 		this.chainLogsArea = TextConsoleBuilderFactory.getInstance().createBuilder(project).getConsole();
 		this.scriptFileType = resolveScriptFileType();
-		this.chainCurrentStateArea = new EditorTextField("", project, JsonFileType.INSTANCE);
+		this.chainCurrentStateArea = EditorThemeSupport.configure(new EditorTextField("", project, JsonFileType.INSTANCE));
 		this.chainCurrentStateArea.setOneLineMode(false);
 		this.chainBeforeRequestArea = createScriptEditor();
 		this.chainAfterRequestArea = createScriptEditor();
@@ -1508,13 +1508,13 @@ public final class ChainEditorPanel {
 	}
 
 	private EditorTextField createScriptEditor() {
-		EditorTextField editor = new EditorTextField("", project, scriptFileType);
+		EditorTextField editor = EditorThemeSupport.configure(new EditorTextField("", project, scriptFileType));
 		editor.setOneLineMode(false);
 		return editor;
 	}
 
 	private EditorTextField createJsonEditor() {
-		EditorTextField editor = new EditorTextField("", project, JsonFileType.INSTANCE);
+		EditorTextField editor = EditorThemeSupport.configure(new EditorTextField("", project, JsonFileType.INSTANCE));
 		editor.setOneLineMode(false);
 		return editor;
 	}

@@ -39,6 +39,7 @@ import com.non_organic_onion.intelli.webrunner.ui.UrlToolDialog;
 import com.non_organic_onion.intelli.webrunner.ui.UuidGeneratorDialog;
 import com.non_organic_onion.intelli.webrunner.ui.WebrunnerInfoDialog;
 import com.non_organic_onion.intelli.webrunner.util.ContentDispositionUtils;
+import com.non_organic_onion.intelli.webrunner.util.CurlCommandBuilder;
 import com.non_organic_onion.intelli.webrunner.util.CurlCommandParser;
 import com.non_organic_onion.intelli.webrunner.util.CurlRequest;
 import com.non_organic_onion.intelli.webrunner.util.FileNameUtils;
@@ -79,8 +80,13 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Insets;
+import java.awt.KeyEventDispatcher;
 import java.awt.KeyboardFocusManager;
 import java.awt.Point;
+import java.awt.Toolkit;
+import java.awt.datatransfer.StringSelection;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -111,6 +117,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 
 	private NodeState currentNode;
 	private String treePopupFolderId;
+	private final KeyEventDispatcher hotkeyDispatcher = this::dispatchPluginHotkey;
 
 	private final ObjectMapper mapper = new ObjectMapper();
 	private final TemplateEngine templateEngine = new TemplateEngine();
@@ -168,6 +175,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 
 	@Override
 	public void dispose() {
+		KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(hotkeyDispatcher);
 		editor.dispose();
 		kafkaListenerService.shutdown();
 	}
@@ -256,6 +264,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		JMenuItem clone = new JMenuItem("Clone");
 		JMenuItem newCollection = new JMenuItem("New Collection");
 		JMenuItem remove = new JMenuItem("Delete");
+		JMenuItem getCurlItem = new JMenuItem("Get cURL");
 		JMenuItem useCurlItem = new JMenuItem("Use cURL");
 		JMenuItem importHttpItem = new JMenuItem("Import .http");
 		JMenuItem exportHttpItem = new JMenuItem("Export .http");
@@ -266,6 +275,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		clone.addActionListener(e -> cloneSelectedRequest());
 		newCollection.addActionListener(e -> createFolder());
 		remove.addActionListener(e -> deleteSelected());
+		getCurlItem.addActionListener(e -> copySelectedCurl());
 		useCurlItem.addActionListener(e -> useCurl(treePopupFolderId));
 		importHttpItem.addActionListener(e -> importHttpFromTree());
 		exportHttpItem.addActionListener(e -> exportHttpFromTree());
@@ -277,6 +287,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		menu.add(newCollection);
 		menu.add(remove);
 		menu.addSeparator();
+		menu.add(getCurlItem);
 		menu.add(useCurlItem);
 		menu.addSeparator();
 		menu.add(importHttpItem);
@@ -290,7 +301,9 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 				RequestTreePanel.TreeFolderSelection selection = treePanel.getTreeFolderSelection();
 				boolean enable = selection != null;
 				boolean requestSelected = currentNode != null && currentNode.type == NodeType.REQUEST;
+				boolean httpRequestSelected = requestSelected && currentNode.requestType == RequestType.HTTP;
 				clone.setEnabled(requestSelected);
+				getCurlItem.setEnabled(httpRequestSelected);
 				importHttpItem.setEnabled(enable);
 				exportHttpItem.setEnabled(enable);
 				importOpenApiItem.setEnabled(enable);
@@ -378,6 +391,33 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 				JOptionPane.ERROR_MESSAGE
 			);
 		}
+	}
+
+	private void copySelectedCurl() {
+		if (currentNode == null || currentNode.type != NodeType.REQUEST || currentNode.requestType != RequestType.HTTP) {
+			return;
+		}
+		saveCurrentEditors();
+		RequestDetailsState details = stateService.getRequestDetails(currentNode.id);
+		if (details == null || details.url == null || details.url.isBlank()) {
+			JOptionPane.showMessageDialog(root, "Missing request URL.", "Get cURL", JOptionPane.ERROR_MESSAGE);
+			return;
+		}
+		RequestStatusState status = stateService.getRequestStatus(currentNode.id);
+		String curl = CurlCommandBuilder.build(
+			details.method == null ? "GET" : details.method,
+			details.url,
+			status != null ? status.requestHeaders : List.of(),
+			status != null ? status.requestParams : List.of(),
+			status != null ? status.requestBody : "",
+			details.payloadType == null ? "RAW" : details.payloadType,
+			status != null ? status.formData : List.of(),
+			status != null ? status.binaryFilePath : ""
+		);
+		Toolkit.getDefaultToolkit()
+			.getSystemClipboard()
+			.setContents(new StringSelection(curl), null);
+		showLog("cURL copied to clipboard.");
 	}
 
 	private void showDevToolsMenu() {
@@ -1254,6 +1294,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		InputMap inputMap = root.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
 		ActionMap actionMap = root.getActionMap();
 		inputMap.put(KeyStroke.getKeyStroke("control ENTER"), "webrunner.send");
+		inputMap.put(KeyStroke.getKeyStroke("alt 1"), "webrunner.focus.tree");
 		inputMap.put(KeyStroke.getKeyStroke("DELETE"), "webrunner.delete");
 		inputMap.put(KeyStroke.getKeyStroke("control shift L"), "webrunner.format");
 		inputMap.put(KeyStroke.getKeyStroke("control alt L"), "webrunner.format");
@@ -1264,20 +1305,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		actionMap.put("webrunner.send", new AbstractAction() {
 			@Override
 			public void actionPerformed(java.awt.event.ActionEvent e) {
-				if (currentNode == null || currentNode.type != NodeType.REQUEST) {
-					return;
-				}
-				if (currentNode.requestType == RequestType.HTTP) {
-					editor.executeHttp();
-				} else if (currentNode.requestType == RequestType.GRPC) {
-					editor.executeGrpc();
-				} else if (currentNode.requestType == RequestType.KAFKA) {
-					editor.executeKafka();
-				} else if (currentNode.requestType == RequestType.KAFKA_LISTEN) {
-					editor.toggleKafkaListeningFromShortcut();
-				} else if (currentNode.requestType == RequestType.CHAIN) {
-					chainPanel.triggerSend();
-				}
+				triggerCurrentRequest();
 			}
 		});
 		actionMap.put("webrunner.delete", new AbstractAction() {
@@ -1313,9 +1341,67 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		actionMap.put("webrunner.focus.tree", new AbstractAction() {
 			@Override
 			public void actionPerformed(java.awt.event.ActionEvent e) {
-				treePanel.getTree().requestFocusInWindow();
+				focusRequestTree();
 			}
 		});
+		KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(hotkeyDispatcher);
+	}
+
+	private boolean dispatchPluginHotkey(KeyEvent event) {
+		if (event.getID() != KeyEvent.KEY_PRESSED || !isPluginFocusOwner()) {
+			return false;
+		}
+		if (isCtrlEnter(event)) {
+			triggerCurrentRequest();
+			event.consume();
+			return true;
+		}
+		if (isAltOne(event)) {
+			focusRequestTree();
+			event.consume();
+			return true;
+		}
+		return false;
+	}
+
+	private boolean isPluginFocusOwner() {
+		Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+		return focusOwner != null && SwingUtilities.isDescendingFrom(focusOwner, root);
+	}
+
+	private boolean isCtrlEnter(KeyEvent event) {
+		int modifiers = event.getModifiersEx();
+		return event.getKeyCode() == KeyEvent.VK_ENTER
+			&& (modifiers & InputEvent.CTRL_DOWN_MASK) != 0
+			&& (modifiers & (InputEvent.ALT_DOWN_MASK | InputEvent.META_DOWN_MASK)) == 0;
+	}
+
+	private boolean isAltOne(KeyEvent event) {
+		int modifiers = event.getModifiersEx();
+		return event.getKeyCode() == KeyEvent.VK_1
+			&& (modifiers & InputEvent.ALT_DOWN_MASK) != 0
+			&& (modifiers & (InputEvent.CTRL_DOWN_MASK | InputEvent.META_DOWN_MASK)) == 0;
+	}
+
+	private void triggerCurrentRequest() {
+		if (currentNode == null || currentNode.type != NodeType.REQUEST) {
+			return;
+		}
+		if (currentNode.requestType == RequestType.HTTP) {
+			editor.executeHttp();
+		} else if (currentNode.requestType == RequestType.GRPC) {
+			editor.executeGrpc();
+		} else if (currentNode.requestType == RequestType.KAFKA) {
+			editor.executeKafka();
+		} else if (currentNode.requestType == RequestType.KAFKA_LISTEN) {
+			editor.toggleKafkaListeningFromShortcut();
+		} else if (currentNode.requestType == RequestType.CHAIN) {
+			chainPanel.triggerSend();
+		}
+	}
+
+	private void focusRequestTree() {
+		treePanel.getTree().requestFocusInWindow();
 	}
 
 	private void switchTab(int direction) {

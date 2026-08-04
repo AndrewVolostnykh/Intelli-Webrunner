@@ -2,6 +2,7 @@ package com.non_organic_onion.intelli.webrunner.script;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.non_organic_onion.intelli.webrunner.grpc.GrpcExecutionResponse;
+import com.non_organic_onion.intelli.webrunner.kafka.KafkaListenMessage;
 import com.non_organic_onion.intelli.webrunner.state.FormEntryState;
 import com.non_organic_onion.intelli.webrunner.state.HeaderEntryState;
 import com.non_organic_onion.intelli.webrunner.execution.HttpExecutionResponse;
@@ -213,6 +214,7 @@ public class ScriptRuntime {
             ScriptableObject.putProperty(contextObj, "request", requestObj);
             ScriptableObject.putProperty(contextObj, "rawRequest", rawRequestObj);
             ScriptableObject.putProperty(contextObj, "response", responseObj);
+            ScriptableObject.putProperty(contextObj, "message", responseObj);
             ScriptableObject.putProperty(contextObj, "stringify", stringifyFn);
             ScriptableObject.putProperty(contextObj, "jsonify", jsonifyFn);
             ScriptableObject.putProperty(contextObj, "getRequest", getRequestFn);
@@ -249,6 +251,7 @@ public class ScriptRuntime {
             ScriptableObject.putProperty(scope, "request", requestObj);
             ScriptableObject.putProperty(scope, "rawRequest", rawRequestObj);
             ScriptableObject.putProperty(scope, "response", responseObj);
+            ScriptableObject.putProperty(scope, "message", responseObj);
             ScriptableObject.putProperty(scope, "context", contextObj);
             ScriptableObject.putProperty(scope, "log", logFn);
             ScriptableObject.putProperty(scope, "logAndReturn", logAndReturnFn);
@@ -398,6 +401,16 @@ public class ScriptRuntime {
             ScriptableObject.putProperty(responseObj, "statusMessage", grpc.statusMessage);
             ScriptableObject.putProperty(responseObj, "headers", buildHeaderMap(grpc.headers, cx, scope));
             ScriptableObject.putProperty(responseObj, "body", buildScriptBody(grpc.body, cx, scope));
+            return responseObj;
+        }
+        if (context.response instanceof KafkaListenMessage message) {
+            ScriptableObject.putProperty(responseObj, "topic", message.topic == null ? "" : message.topic);
+            ScriptableObject.putProperty(responseObj, "partition", message.partition);
+            ScriptableObject.putProperty(responseObj, "offset", message.offset);
+            ScriptableObject.putProperty(responseObj, "timestamp", message.timestamp);
+            ScriptableObject.putProperty(responseObj, "key", message.key == null ? "" : message.key);
+            ScriptableObject.putProperty(responseObj, "body", buildScriptBody(message.body, cx, scope));
+            ScriptableObject.putProperty(responseObj, "headers", buildKafkaListenHeaderArray(message.headers, cx, scope));
             return responseObj;
         }
         Object fallback = Context.javaToJS(context.response, scope);
@@ -739,6 +752,23 @@ public class ScriptRuntime {
             ScriptableObject.putProperty(obj, "name", header == null || header.name == null ? "" : header.name);
             ScriptableObject.putProperty(obj, "value", header == null || header.value == null ? "" : header.value);
             ScriptableObject.putProperty(obj, "enabled", header != null && header.enabled);
+            array.put(i, array, obj);
+        }
+        return array;
+    }
+
+    private Scriptable buildKafkaListenHeaderArray(
+            List<KafkaListenMessage.Header> headers,
+            Context cx,
+            Scriptable scope
+    ) {
+        List<KafkaListenMessage.Header> source = headers == null ? List.of() : headers;
+        NativeArray array = (NativeArray) cx.newArray(scope, source.size());
+        for (int i = 0; i < source.size(); i++) {
+            KafkaListenMessage.Header header = source.get(i);
+            NativeObject obj = (NativeObject) cx.newObject(scope);
+            ScriptableObject.putProperty(obj, "name", header == null || header.name == null ? "" : header.name);
+            ScriptableObject.putProperty(obj, "value", header == null || header.value == null ? "" : header.value);
             array.put(i, array, obj);
         }
         return array;

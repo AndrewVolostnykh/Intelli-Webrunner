@@ -17,6 +17,10 @@ import com.non_organic_onion.intelli.webrunner.kafka.KafkaListenRequest;
 import com.non_organic_onion.intelli.webrunner.kafka.KafkaListenerService;
 import com.non_organic_onion.intelli.webrunner.kafka.KafkaMetadataService;
 import com.non_organic_onion.intelli.webrunner.script.GlobalContextRuntime;
+import com.non_organic_onion.intelli.webrunner.script.ScriptContext;
+import com.non_organic_onion.intelli.webrunner.script.ScriptHelpers;
+import com.non_organic_onion.intelli.webrunner.script.ScriptLogger;
+import com.non_organic_onion.intelli.webrunner.script.ScriptRequest;
 import com.non_organic_onion.intelli.webrunner.script.ScriptRuntime;
 import com.non_organic_onion.intelli.webrunner.script.VarsStore;
 import com.non_organic_onion.intelli.webrunner.state.FormEntryState;
@@ -28,7 +32,6 @@ import com.non_organic_onion.intelli.webrunner.state.NodeType;
 import com.non_organic_onion.intelli.webrunner.state.RequestDetailsState;
 import com.non_organic_onion.intelli.webrunner.state.RequestStatusState;
 import com.non_organic_onion.intelli.webrunner.state.RequestType;
-import com.non_organic_onion.intelli.webrunner.util.CurlCommandBuilder;
 import com.non_organic_onion.intelli.webrunner.util.PayloadTypes;
 import com.non_organic_onion.intelli.webrunner.util.TemplateEngine;
 import com.non_organic_onion.intelli.webrunner.util.UrlParamUtils;
@@ -74,8 +77,6 @@ import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
-import java.awt.Toolkit;
-import java.awt.datatransfer.StringSelection;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.io.File;
@@ -156,6 +157,9 @@ public final class RequestEditorPanel {
 	private final EditorTextField requestBodyArea;
 	private final CardLayout bodyCards = new CardLayout();
 	private final JPanel bodyPanel = new JPanel(bodyCards);
+	private JComponent headersPanel;
+	private JComponent beforeScriptComponent;
+	private JComponent afterScriptComponent;
 	private final FormDataTableModel formDataTableModel = new FormDataTableModel();
 	private final JTable formDataTable = new JTable(formDataTableModel);
 	private final JButton addFormDataButton = new JButton("Add");
@@ -230,6 +234,7 @@ public final class RequestEditorPanel {
 	private boolean stressTestsEnabled;
 	private Future<?> activeExecution;
 	private final Map<String, List<KafkaListenMessage>> kafkaListenMessagesByRequest = new ConcurrentHashMap<>();
+	private final Map<String, VarsStore> kafkaListenVarsByRequest = new ConcurrentHashMap<>();
 
 	private DebugCallSession debugCallSession;
 
@@ -325,15 +330,13 @@ public final class RequestEditorPanel {
 		bodyPanel.add(new JBScrollPane(requestBodyArea), "raw");
 		bodyPanel.add(buildFormDataPanel(), "form");
 		bodyPanel.add(buildBinaryPanel(), "binary");
+		headersPanel = buildHeadersPanel();
+		beforeScriptComponent = new JBScrollPane(beforeScriptArea);
+		afterScriptComponent = new JBScrollPane(afterScriptArea);
 		paramsPanel.add(buildParamsTablePanel(), "table");
 		paramsPanel.add(buildKafkaParamsPanel(), "kafka");
 		paramsPanel.add(buildKafkaListenParamsPanel(), "kafkaListen");
-		requestTabs.add("Body", bodyPanel);
-		requestTabs.add("Params", paramsPanel);
-		requestTabs.add("Headers", buildHeadersPanel());
-		requestTabs.add("Before Request", new JBScrollPane(beforeScriptArea));
-		requestTabs.add("After Request", new JBScrollPane(afterScriptArea));
-		updateStressTabVisibility();
+		rebuildRequestTabsFor(RequestType.HTTP);
 		requestTabs.setMinimumSize(new Dimension(0, 0));
 		responseViewer.getComponent().setMinimumSize(new Dimension(0, 0));
 
@@ -350,6 +353,34 @@ public final class RequestEditorPanel {
 			requestTabs.add("Stress", stressComponent);
 		} else if (!stressTestsEnabled && stressTabIndex >= 0) {
 			requestTabs.removeTabAt(stressTabIndex);
+		}
+	}
+
+	private void rebuildRequestTabsFor(RequestType requestType) {
+		removeRequestTab(bodyPanel);
+		removeRequestTab(paramsPanel);
+		removeRequestTab(headersPanel);
+		removeRequestTab(beforeScriptComponent);
+		removeRequestTab(afterScriptComponent);
+		removeRequestTab(stressSettingsPanel.getComponent());
+
+		boolean kafkaListen = requestType == RequestType.KAFKA_LISTEN;
+		if (!kafkaListen) {
+			requestTabs.add("Body", bodyPanel);
+		}
+		requestTabs.add("Params", paramsPanel);
+		requestTabs.add("Headers", headersPanel);
+		requestTabs.add(kafkaListen ? "On Message" : "Before Request", beforeScriptComponent);
+		if (!kafkaListen) {
+			requestTabs.add("After Request", afterScriptComponent);
+		}
+		updateStressTabVisibility();
+	}
+
+	private void removeRequestTab(JComponent component) {
+		int index = component == null ? -1 : requestTabs.indexOfComponent(component);
+		if (index >= 0) {
+			requestTabs.removeTabAt(index);
 		}
 	}
 
@@ -604,48 +635,22 @@ public final class RequestEditorPanel {
 
 	private void showRequestMenu(JButton anchor) {
 		JPopupMenu menu = new JPopupMenu();
-		JMenuItem getCurlItem = new JMenuItem("Get cURL");
 		JMenuItem openRequestItem = new JMenuItem("Open Request");
 		JMenuItem openResponseItem = new JMenuItem("Open Response");
 		JMenuItem protoBodyItem = new JMenuItem("Proto body");
-		getCurlItem.addActionListener(e -> copyCurl());
 		openRequestItem.addActionListener(e -> openRequestWindow());
 		openResponseItem.addActionListener(e -> openResponseWindow());
 		protoBodyItem.addActionListener(e -> generateBodyFromProto());
 		boolean enabled =
 			activeNode != null && activeNode.type == NodeType.REQUEST && activeNode.requestType != RequestType.CHAIN;
-		getCurlItem.setEnabled(enabled && activeNode.requestType == RequestType.HTTP);
 		openRequestItem.setEnabled(enabled);
 		openResponseItem.setEnabled(enabled);
 		protoBodyItem.setEnabled(enabled);
-		menu.add(getCurlItem);
-		menu.addSeparator();
 		menu.add(openRequestItem);
 		menu.add(openResponseItem);
 		menu.addSeparator();
 		menu.add(protoBodyItem);
 		menu.show(anchor, 0, anchor.getHeight());
-	}
-
-	private void copyCurl() {
-		HttpExecutionContext context = prepareHttpExecution();
-		if (context == null) {
-			return;
-		}
-		String curl = CurlCommandBuilder.build(
-			context.method,
-			context.url,
-			context.headers,
-			context.params,
-			context.body,
-			context.payloadType,
-			context.formData,
-			context.binaryFilePath
-		);
-		Toolkit.getDefaultToolkit()
-			.getSystemClipboard()
-			.setContents(new StringSelection(curl), null);
-		responseViewer.showLog("cURL copied to clipboard.");
 	}
 
 	private JPanel buildHeadersPanel() {
@@ -931,6 +936,8 @@ public final class RequestEditorPanel {
 		if (node == null) {
 			return;
 		}
+		responseViewer.setCookiesVisible(node.requestType == RequestType.HTTP);
+		rebuildRequestTabsFor(node.requestType);
 		if (node.requestType == RequestType.HTTP) {
 			loadHttp(node.id);
 			requestTopCards.show(requestTopPanel, "http");
@@ -1560,6 +1567,7 @@ public final class RequestEditorPanel {
 			status != null && status.kafkaOffsetStrategy != null ? status.kafkaOffsetStrategy : "Latest";
 		List<KafkaListenMessage> existingMessages = loadKafkaListenMessages(requestId);
 		kafkaListenMessagesByRequest.put(requestId, existingMessages);
+		kafkaListenVarsByRequest.put(requestId, new VarsStore());
 		kafkaListenButton.setText("Stop Listening");
 		updateKafkaListenResponse(
 			requestId,
@@ -1570,7 +1578,7 @@ public final class RequestEditorPanel {
 			kafkaListenerService.start(
 				requestId,
 				request,
-				message -> invokeLater(() -> appendKafkaListenMessage(requestId, message)),
+				message -> appendKafkaListenMessage(requestId, message),
 				error -> invokeLater(() -> handleKafkaListenError(requestId, error))
 			);
 		} catch (Exception error) {
@@ -1582,20 +1590,109 @@ public final class RequestEditorPanel {
 		String requestId,
 		KafkaListenMessage message
 	) {
+		List<String> scriptLogs = runKafkaListenOnMessageScript(requestId, message);
 		List<KafkaListenMessage> messages =
 			kafkaListenMessagesByRequest.computeIfAbsent(requestId, this::loadKafkaListenMessages);
 		messages.add(0, message);
+		String logs = buildKafkaListenLogs(requestId, scriptLogs, messages.size());
 		updateKafkaListenResponse(
 			requestId,
 			toPrettyJson(messages),
-			"Listening for Kafka messages... Received: " + messages.size()
+			logs
 		);
+	}
+
+	private List<String> runKafkaListenOnMessageScript(
+		String requestId,
+		KafkaListenMessage message
+	) {
+		RequestStatusState status = stateService.getRequestStatus(requestId);
+		String script = status == null ? "" : safe(status.beforeScript);
+		if (script.isBlank()) {
+			return List.of();
+		}
+		List<String> logs = new ArrayList<>();
+		ScriptLogger logger = logs::add;
+		ScriptHelpers helpers = new ScriptHelpers(logger);
+		GlobalContextRuntime globalContextRuntime = new GlobalContextRuntime(stateService, scriptRuntime);
+		VarsStore globalContext = globalContextRuntime.loadAndRun(logger);
+		VarsStore vars = kafkaListenVarsByRequest.computeIfAbsent(requestId, key -> new VarsStore());
+		ScriptRequest rawRequest = kafkaListenMessageRequest(message);
+		ScriptRequest scriptRequest = kafkaListenMessageRequest(message);
+		try {
+			scriptRuntime.runScript(
+				script,
+				new ScriptContext(vars, logger, helpers, scriptRequest, rawRequest, message, globalContext)
+			);
+			message.body = scriptRequest.getBody();
+			message.headers = toKafkaListenHeaders(scriptRequest.getHeaders());
+		} catch (Exception error) {
+			logs.add("On Message error: " + error.getMessage());
+		}
+		globalContextRuntime.persist(globalContext);
+		return logs;
+	}
+
+	private ScriptRequest kafkaListenMessageRequest(KafkaListenMessage message) {
+		return new ScriptRequest(
+			message == null ? "" : safe(message.body),
+			message == null ? List.of() : toHeaderEntries(message.headers),
+			List.of()
+		);
+	}
+
+	private List<HeaderEntryState> toHeaderEntries(List<KafkaListenMessage.Header> headers) {
+		List<HeaderEntryState> entries = new ArrayList<>();
+		if (headers == null) {
+			return entries;
+		}
+		for (KafkaListenMessage.Header header : headers) {
+			HeaderEntryState entry = new HeaderEntryState();
+			entry.name = header == null ? "" : safe(header.name);
+			entry.value = header == null ? "" : safe(header.value);
+			entry.enabled = true;
+			entries.add(entry);
+		}
+		return entries;
+	}
+
+	private List<KafkaListenMessage.Header> toKafkaListenHeaders(List<HeaderEntryState> headers) {
+		List<KafkaListenMessage.Header> entries = new ArrayList<>();
+		if (headers == null) {
+			return entries;
+		}
+		for (HeaderEntryState header : headers) {
+			if (header == null || !header.enabled) {
+				continue;
+			}
+			entries.add(new KafkaListenMessage.Header(safe(header.name), safe(header.value)));
+		}
+		return entries;
+	}
+
+	private String buildKafkaListenLogs(
+		String requestId,
+		List<String> scriptLogs,
+		int receivedCount
+	) {
+		RequestStatusState status = stateService.getRequestStatus(requestId);
+		List<String> lines = new ArrayList<>();
+		String existing = status == null ? "" : safe(status.logs);
+		if (!existing.isBlank()) {
+			lines.add(existing);
+		}
+		if (scriptLogs != null) {
+			lines.addAll(scriptLogs);
+		}
+		lines.add("Listening for Kafka messages... Received: " + receivedCount);
+		return String.join("\n", lines);
 	}
 
 	private void handleKafkaListenError(
 		String requestId,
 		Throwable error
 	) {
+		kafkaListenVarsByRequest.remove(requestId);
 		if (activeNode != null && Objects.equals(activeNode.id, requestId)) {
 			kafkaListenButton.setText("Start Listening");
 		}
@@ -1609,6 +1706,7 @@ public final class RequestEditorPanel {
 		}
 		String requestId = activeNode.id;
 		kafkaListenerService.stop(requestId);
+		kafkaListenVarsByRequest.remove(requestId);
 		kafkaListenButton.setText("Start Listening");
 		appendKafkaListenLog(requestId, "Kafka listening stopped.");
 	}
@@ -1973,7 +2071,8 @@ public final class RequestEditorPanel {
 	}
 
 	private EditorTextField createScriptMirrorEditor(EditorTextField source) {
-		EditorTextField editor = new EditorTextField(source.getDocument(), project, scriptFileType, false, false);
+		EditorTextField editor =
+			EditorThemeSupport.configure(new EditorTextField(source.getDocument(), project, scriptFileType, false, false));
 		editor.setOneLineMode(false);
 		return editor;
 	}
@@ -2058,7 +2157,7 @@ public final class RequestEditorPanel {
 	}
 
 	private EditorTextField createScriptEditor() {
-		return new EditorTextField("", project, scriptFileType);
+		return EditorThemeSupport.configure(new EditorTextField("", project, scriptFileType));
 	}
 
 	private String comboEditorText(JComboBox<String> combo) {
