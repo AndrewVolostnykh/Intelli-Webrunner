@@ -11,7 +11,8 @@ The request editor has these tabs:
 ## Body
 1. `Raw` shows a text editor.
 2. `Form Data` shows a table with `name`, `value`, `type`, `enabled`.
-3. `Binary` lets you choose a file to send as bytes.
+3. `x-www-form-urlencoded` uses the same table and sends enabled rows as URL-encoded form fields.
+4. `Binary` lets you choose a file to send as bytes.
 
 ## Params
 1. Params are added to the URL on execution.

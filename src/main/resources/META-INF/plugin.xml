@@ -1,9 +1,47 @@
 <idea-plugin>
     <id>intelli-webrunner</id>
     <name>Intelli Webrunner</name>
-    <vendor email="support@example.com">Intelli Webrunner</vendor>
-    <description>API testing tool window with HTTP, gRPC, kafka and chain execution.</description>
-    <version>0.15.1</version>
+    <vendor email="non.organic.onion@gmail.com">Non Organic Onion</vendor>
+    <description><![CDATA[
+    <p>
+        <b>An alternative to Postman and Insomnia — directly inside IntelliJ IDEA.</b>
+    </p>
+
+    <p>
+        No more switching between your IDE and external API testing tools.
+        Test your application without leaving IntelliJ IDEA.
+    </p>
+
+    <p>The plugin allows you to:</p>
+
+    <ul>
+        <li>Send and test HTTP requests</li>
+        <li>Work with gRPC</li>
+        <li>Produce and consume Kafka messages</li>
+        <li>Run multiple requests sequentially</li>
+        <li>Use before-request and after-response scripts</li>
+        <li>Manage environment variables</li>
+        <li>Organize and reuse requests</li>
+        <li>Inspect responses directly inside the IDE</li>
+    </ul>
+
+    <p>
+        The plugin also includes a collection of useful developer tools,
+        so you no longer need separate websites for common everyday tasks.
+    </p>
+
+    <p>
+        Decode JWT tokens, encode and decode Base64, get the current Unix timestamp,
+        convert values and formats, and use many other developer utilities —
+        all without leaving IntelliJ IDEA.
+    </p>
+
+    <p>
+        Keep your development, API testing, debugging, and everyday developer tools
+        in one place.
+    </p>
+]]></description>
+    <version>1.0.0</version>
 
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.json</depends>
@@ -13,6 +51,7 @@
         <applicationService serviceImplementation="com.non_organic_onion.intelli.webrunner.state.GlobalWebrunnerStateService"/>
         <toolWindow id="Intelli Webrunner"
                     anchor="left"
+                    secondary="true"
                     icon="/icons/toolWindow.svg"
                     factoryClass="com.non_organic_onion.intelli.webrunner.toolwindow.WebrunnerToolWindowFactory"/>
     </extensions>

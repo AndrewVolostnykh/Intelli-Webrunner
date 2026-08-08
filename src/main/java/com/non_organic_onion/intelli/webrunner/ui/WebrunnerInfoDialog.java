@@ -1,5 +1,7 @@
 package com.non_organic_onion.intelli.webrunner.ui;
 
+import com.intellij.ide.BrowserUtil;
+import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBScrollPane;
 
 import javax.swing.JComponent;
@@ -7,16 +9,41 @@ import javax.swing.JDialog;
 import javax.swing.JEditorPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTree;
+import javax.swing.event.HyperlinkEvent;
 import javax.swing.event.TreeSelectionEvent;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.TreePath;
 import java.awt.BorderLayout;
 import java.awt.Component;
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 /**
- * Non-modal, read-only help dialog focused on the scripting API.
+ * Non-modal, read-only help dialog backed by the same Markdown docs used for GitHub Pages.
  */
 public final class WebrunnerInfoDialog {
+
+	private static final String DOC_RESOURCE_DIR = "docs/";
+	private static final List<DocFile> DOC_FILES = List.of(
+		new DocFile("index.md", "Home"),
+		new DocFile("quickstart.md", "Quickstart"),
+		new DocFile("http.md", "HTTP Requests"),
+		new DocFile("grpc.md", "gRPC Requests"),
+		new DocFile("request-editor.md", "Headers, Params, Body"),
+		new DocFile("response-viewer.md", "Response Viewer"),
+		new DocFile("scripting.md", "Scripting"),
+		new DocFile("debug-call.md", "Debug Call"),
+		new DocFile("chain.md", "Chain Mode"),
+		new DocFile("import-export.md", "Import and Export"),
+		new DocFile("faq.md", "FAQ")
+	);
 
 	private WebrunnerInfoDialog() {
 	}
@@ -25,15 +52,16 @@ public final class WebrunnerInfoDialog {
 		JDialog dialog = new JDialog();
 		dialog.setTitle("Webrunner Info");
 		dialog.getContentPane().setLayout(new BorderLayout());
-		dialog.getContentPane().add(buildScriptingBrowser(), BorderLayout.CENTER);
+		dialog.getContentPane().add(buildDocsBrowser(), BorderLayout.CENTER);
 		dialog.setSize(1100, 760);
 		dialog.setLocationRelativeTo(parent);
 		dialog.setModal(false);
 		dialog.setVisible(true);
 	}
 
-	private static JComponent buildScriptingBrowser() {
-		DefaultMutableTreeNode root = buildDocsTree();
+	private static JComponent buildDocsBrowser() {
+		Map<String, DocPage> pages = loadDocs();
+		DefaultMutableTreeNode root = buildDocsTree(pages);
 		JTree tree = new JTree(root);
 		tree.setRootVisible(false);
 		tree.setShowsRootHandles(true);
@@ -41,19 +69,33 @@ public final class WebrunnerInfoDialog {
 			tree.expandRow(row);
 		}
 
-		JEditorPane details = new JEditorPane("text/html", page(introHtml()));
+		JEditorPane details = new JEditorPane("text/html", "");
 		details.setEditable(false);
-		details.setOpaque(false);
+		details.setOpaque(true);
+		details.addHyperlinkListener(event -> {
+			if (event.getEventType() != HyperlinkEvent.EventType.ACTIVATED) {
+				return;
+			}
+			String target = event.getDescription();
+			String docName = normalizeDocLink(target);
+			if (docName != null && pages.containsKey(docName)) {
+				selectDoc(tree, docName);
+				return;
+			}
+			if (target != null && !target.isBlank()) {
+				BrowserUtil.browse(target);
+			}
+		});
 
 		tree.addTreeSelectionListener((TreeSelectionEvent event) -> {
 			DefaultMutableTreeNode node = selectedNode(event.getPath());
 			Object value = node == null ? null : node.getUserObject();
-			if (value instanceof DocNode doc) {
-				details.setText(page(doc.html));
+			if (value instanceof DocPage doc) {
+				details.setText(page(doc.html()));
 				details.setCaretPosition(0);
 			}
 		});
-		tree.setSelectionRow(0);
+		selectDoc(tree, "index.md");
 
 		JSplitPane splitPane = new JSplitPane(
 			JSplitPane.HORIZONTAL_SPLIT,
@@ -65,6 +107,40 @@ public final class WebrunnerInfoDialog {
 		return splitPane;
 	}
 
+	private static Map<String, DocPage> loadDocs() {
+		Map<String, DocPage> pages = new LinkedHashMap<>();
+		for (DocFile file : DOC_FILES) {
+			String markdown = readResource(DOC_RESOURCE_DIR + file.name());
+			String title = firstHeading(markdown, file.title());
+			pages.put(file.name(), new DocPage(file.name(), title, MarkdownRenderer.render(markdown)));
+		}
+		return pages;
+	}
+
+	private static DefaultMutableTreeNode buildDocsTree(Map<String, DocPage> pages) {
+		DefaultMutableTreeNode root = new DefaultMutableTreeNode("Docs");
+		for (DocFile file : DOC_FILES) {
+			DocPage page = pages.get(file.name());
+			if (page != null) {
+				root.add(new DefaultMutableTreeNode(page));
+			}
+		}
+		return root;
+	}
+
+	private static void selectDoc(JTree tree, String docName) {
+		DefaultMutableTreeNode root = (DefaultMutableTreeNode) tree.getModel().getRoot();
+		for (int index = 0; index < root.getChildCount(); index++) {
+			DefaultMutableTreeNode child = (DefaultMutableTreeNode) root.getChildAt(index);
+			Object value = child.getUserObject();
+			if (value instanceof DocPage page && page.name().equals(docName)) {
+				tree.setSelectionPath(new TreePath(child.getPath()));
+				return;
+			}
+		}
+		tree.setSelectionRow(0);
+	}
+
 	private static DefaultMutableTreeNode selectedNode(TreePath path) {
 		if (path == null || !(path.getLastPathComponent() instanceof DefaultMutableTreeNode node)) {
 			return null;
@@ -72,441 +148,370 @@ public final class WebrunnerInfoDialog {
 		return node;
 	}
 
-	private static DefaultMutableTreeNode buildDocsTree() {
-		DefaultMutableTreeNode root = node("Scripting", introHtml());
-
-		DefaultMutableTreeNode basics = category(
-			"Basics",
-			"Script Basics",
-			"""
-			<p>Scripts run in Rhino JavaScript. Before Request scripts can mutate <code>request</code>
-			before templating and transport. After Request scripts can read <code>response</code> and can
-			still mutate variable stores.</p>
-			<p>Most globals are also available through <code>context</code>, for example
-			<code>context.vars</code>, <code>context.log</code>, and <code>context.stringify</code>.</p>
-			"""
-		);
-		basics.add(node("Execution Order", """
-			<p>Normal execution order is: Global Context script, Before Request script, placeholder
-			resolution, transport, After Request script.</p>
-			<ul>
-			  <li>Request variables override Chain Context variables.</li>
-			  <li>Chain Context variables override Global Context variables.</li>
-			  <li>Missing placeholders in JSON bare values become <code>null</code>.</li>
-			</ul>
-			<pre>vars.set('token', 'request-token');
-chainContext.set('token', 'chain-token');
-globalContext.set('token', 'global-token');
-// {{token}} resolves to request-token</pre>
-			<pre>// Before Request
-request.headers = [{ name: 'Authorization', value: 'Bearer ' + vars.get('token'), enabled: true }];</pre>
-			"""));
-		basics.add(node("context", """
-			<p>Grouped access to the same scripting API from one object. It includes variable stores,
-			request objects, response objects, logging helpers, JSON helpers, chain helpers, and random/date helpers.</p>
-			<pre>context.log('token', context.vars.get('token'));</pre>
-			<pre>context.request.body.requestId = context.uuid();</pre>
-			<pre>var previous = context.getRequest('Login');</pre>
-			"""));
-		basics.add(node("context.helpers", """
-			<p>Java helper object exposed for advanced use. Prefer the global functions for everyday scripts;
-			they call the same helper implementation.</p>
-			<pre>var id = context.helpers.uuid();</pre>
-			<pre>var email = context.helpers.randomEmail();</pre>
-			<pre>context.helpers.assertValue(response.statusCode, 200, 'Expected 200');</pre>
-			"""));
-		root.add(basics);
-
-		DefaultMutableTreeNode logging = category("Logging", "Logging Functions", """
-			<p>Use these functions to write values to Logs. Objects and arrays are serialized as JSON.</p>
-			""");
-		logging.add(node("log(...args)", """
-			<p>Writes all arguments to Logs, separated by spaces.</p>
-			<pre>log('status', response.statusCode);</pre>
-			<pre>log('body', response.body);</pre>
-			<pre>log('headers', response.headers);</pre>
-			"""));
-		logging.add(node("logAndReturn(value)", """
-			<p>Logs a value and returns the same value. Useful inside expressions.</p>
-			<pre>vars.set('token', logAndReturn(response.body.token));</pre>
-			<pre>request.headers = [{ name: 'X-Debug', value: logAndReturn('enabled'), enabled: true }];</pre>
-			<pre>log('created id', logAndReturn(response.body.id));</pre>
-			"""));
-		logging.add(node("logAndReturn(message, value)", """
-			<p>Logs a label and a value, then returns only the value.</p>
-			<pre>vars.set('userId', logAndReturn('User id:', response.body.id));</pre>
-			<pre>request.body.token = logAndReturn('Token:', vars.get('token'));</pre>
-			<pre>logAndReturn('Full response:', response.body);</pre>
-			"""));
-		root.add(logging);
-
-		DefaultMutableTreeNode variables = category("Variables", "Variable Stores", """
-			<p><code>vars</code>, <code>globalContext</code>, and <code>chainContext</code> have the same API:
-			<code>set</code>, <code>add</code>, <code>get</code>, and <code>all</code>.</p>
-			""");
-		variables.add(node("vars", """
-			<p>Request or chain-run variable store. It has the highest priority for placeholders.</p>
-			<pre>vars.set('token', response.body.token);</pre>
-			<pre>vars.add('page', 2); // add is an alias for set</pre>
-			<pre>request.params = [{ name: 'page', value: vars.get('page'), enabled: true }];</pre>
-			"""));
-		variables.add(node("globalContext", """
-			<p>Project-level variable store configured from Global Context. It is available in request,
-			chain, and Global Context scripts.</p>
-			<pre>globalContext.set('baseUrl', 'https://api.example.com');</pre>
-			<pre>request.headers = [{ name: 'X-Env', value: globalContext.get('env'), enabled: true }];</pre>
-			<pre>log('global vars', globalContext.all());</pre>
-			"""));
-		variables.add(node("chainContext", """
-			<p>Chain-level variable store. It is available while running chain steps and has priority over
-			Global Context but lower priority than <code>vars</code>.</p>
-			<pre>chainContext.set('tenantId', response.body.tenantId);</pre>
-			<pre>request.body.tenantId = chainContext.get('tenantId');</pre>
-			<pre>log('chain context', chainContext.all());</pre>
-			"""));
-		variables.add(node("set(name, value)", """
-			<p>Stores or overwrites a value in the selected store.</p>
-			<pre>vars.set('id', response.body.id);</pre>
-			<pre>globalContext.set('authToken', response.body.token);</pre>
-			<pre>chainContext.set('stepName', 'create-user');</pre>
-			"""));
-		variables.add(node("add(name, value)", """
-			<p>Alias for <code>set</code>.</p>
-			<pre>vars.add('email', randomEmail());</pre>
-			<pre>globalContext.add('lastLoginAt', currentIsoDate());</pre>
-			<pre>chainContext.add('attempt', 1);</pre>
-			"""));
-		variables.add(node("get(name)", """
-			<p>Reads a value. Missing values resolve to JavaScript <code>null</code>.</p>
-			<pre>log(vars.get('token'));</pre>
-			<pre>request.headers = [{ name: 'Authorization', value: 'Bearer ' + globalContext.get('token'), enabled: true }];</pre>
-			<pre>request.body.tenantId = chainContext.get('tenantId');</pre>
-			"""));
-		variables.add(node("all()", """
-			<p>Returns all values as an object.</p>
-			<pre>log(vars.all());</pre>
-			<pre>log('global', globalContext.all());</pre>
-			<pre>var snapshot = stringify(chainContext.all());</pre>
-			"""));
-		root.add(variables);
-
-		DefaultMutableTreeNode requestObjects = category("Request Objects", "Request Objects", """
-			<p><code>request</code> is mutable. <code>rawRequest</code> is the original saved request snapshot
-			before script changes.</p>
-			""");
-		requestObjects.add(node("request.body", """
-			<p>JSON bodies are exposed as objects. Non-JSON bodies are strings.</p>
-			<pre>request.body.name = 'updated';</pre>
-			<pre>request.body.createdAt = currentIsoDate();</pre>
-			<pre>request.body = stringify({ name: 'manual', id: uuid() });</pre>
-			"""));
-		requestObjects.add(node("request.headers", """
-			<p>Array of <code>{ name, value, enabled }</code> objects.</p>
-			<pre>request.headers = [{ name: 'Authorization', value: 'Bearer ' + vars.get('token'), enabled: true }];</pre>
-			<pre>request.headers.push({ name: 'X-Request-Id', value: uuid(), enabled: true });</pre>
-			<pre>request.headers[0].enabled = false;</pre>
-			"""));
-		requestObjects.add(node("request.params", """
-			<p>Array of query parameter objects.</p>
-			<pre>request.params = [{ name: 'q', value: 'search', enabled: true }];</pre>
-			<pre>request.params.push({ name: 'page', value: 2, enabled: true });</pre>
-			<pre>request.params = request.params.filter(function(p) { return p.name !== 'debug'; });</pre>
-			"""));
-		requestObjects.add(node("request.formData", """
-			<p>Array of <code>{ name, value, enabled, file }</code> form-data objects.</p>
-			<pre>request.formData = [{ name: 'name', value: 'Andrew', enabled: true, file: false }];</pre>
-			<pre>request.formData.push({ name: 'avatar', value: 'C:/tmp/avatar.png', enabled: true, file: true });</pre>
-			<pre>request.formData[0].value = vars.get('displayName');</pre>
-			"""));
-		requestObjects.add(node("request.binaryFilePath", """
-			<p>Path used by binary payload requests.</p>
-			<pre>request.binaryFilePath = 'C:/tmp/body.bin';</pre>
-			<pre>request.binaryFilePath = vars.get('downloadPath');</pre>
-			<pre>log('binary file', request.binaryFilePath);</pre>
-			"""));
-		requestObjects.add(node("rawRequest", """
-			<p>Original request snapshot. Use it to compare saved input with the mutated outgoing request.</p>
-			<pre>log('original body', rawRequest.body);</pre>
-			<pre>log('sent name', request.body.name, 'original', rawRequest.body.name);</pre>
-			<pre>assert(rawRequest.headers.length > 0, null, 'Headers should be configured');</pre>
-			"""));
-		root.add(requestObjects);
-
-		DefaultMutableTreeNode responseObjects = category("Response Objects", "Response Objects", """
-			<p><code>response</code> is available in After Request scripts. If the response body is JSON,
-			<code>response.body</code> is exposed as an object.</p>
-			""");
-		responseObjects.add(node("response.statusCode", """
-			<p>HTTP status code or gRPC numeric status code.</p>
-			<pre>assert(response.statusCode, 200, 'Expected success');</pre>
-			<pre>if (response.statusCode === 401) interruptChain('Unauthorized');</pre>
-			<pre>log('status', response.statusCode);</pre>
-			"""));
-		responseObjects.add(node("response.statusMessage", """
-			<p>gRPC status message. HTTP responses may not expose this field in scripts.</p>
-			<pre>log('grpc status', response.statusMessage);</pre>
-			<pre>assert(response.statusMessage, 'OK', 'Expected gRPC OK');</pre>
-			<pre>if (response.statusMessage === 'PERMISSION_DENIED') skip('No access');</pre>
-			"""));
-		responseObjects.add(node("response.headers", """
-			<p>Map of response header names to arrays of values.</p>
-			<pre>log(response.headers);</pre>
-			<pre>var contentType = response.headers['content-type'][0];</pre>
-			<pre>assert(response.headers['set-cookie'], null, 'Expected cookies');</pre>
-			"""));
-		responseObjects.add(node("response.body", """
-			<p>Parsed JSON object for JSON responses, or text for non-JSON responses.</p>
-			<pre>vars.set('token', response.body.token);</pre>
-			<pre>assert(response.body.ok, true, 'Expected ok=true');</pre>
-			<pre>log('raw text or object', response.body);</pre>
-			"""));
-		responseObjects.add(node("response.value", """
-			<p>Fallback wrapper for response types that are not HTTP or gRPC, such as Kafka send metadata.</p>
-			<pre>log(response.value);</pre>
-			<pre>vars.set('kafkaOffset', response.value.offset);</pre>
-			<pre>assert(response.value.topic, 'events', 'Expected Kafka topic');</pre>
-			"""));
-		root.add(responseObjects);
-
-		DefaultMutableTreeNode chain = category("Chain", "Chain Functions", """
-			<p>These functions are intended for Chain Before Request and After Request scripts.</p>
-			""");
-		chain.add(node("getRequest(nameOrId)", """
-			<p>Returns a snapshot for a previously executed chain step by request name or id. If a name is
-			duplicated, the latest executed step with that name wins.</p>
-			<pre>var login = getRequest('Login');
-request.headers = [{ name: 'Authorization', value: 'Bearer ' + login.response.body.token, enabled: true }];</pre>
-			<pre>var created = context.getRequest('Create User');
-assert(created.response.statusCode, 201, 'User should be created');</pre>
-			<pre>var previous = getRequest('request-id');
-log(previous.rawRequest, previous.sentRequest, previous.response);</pre>
-			"""));
-		chain.add(node("skip(...values)", """
-			<p>Marks the current step as <code>Skiped</code>. If called before transport, the request is not
-			sent and the chain continues. If called after transport, the response is kept and the chain
-			continues.</p>
-			<pre>if (!chainContext.get('runPayments')) skip('Payments disabled');</pre>
-			<pre>if (response.statusCode === 404) skip('Optional resource missing', response.body);</pre>
-			<pre>context.skip('Skipping tenant', chainContext.get('tenantId'));</pre>
-			"""));
-		chain.add(node("interruptChain(...values)", """
-			<p>Marks the current step as <code>Interrupted</code> and stops the whole chain.</p>
-			<pre>if (response.statusCode >= 500) interruptChain('Server failed', response.statusCode);</pre>
-			<pre>if (!vars.get('token')) context.interruptChain('Token was not created');</pre>
-			<pre>interruptChain('Fatal validation error', response.body);</pre>
-			"""));
-		chain.add(node("interrupt(...values)", """
-			<p>Alias for <code>interruptChain(...values)</code>.</p>
-			<pre>if (response.statusCode === 401) interrupt('Unauthorized');</pre>
-			<pre>if (response.body.blocked) interrupt('Blocked user', response.body.id);</pre>
-			<pre>context.interrupt('Chain cannot continue');</pre>
-			"""));
-		chain.add(node("interrupChain(...values)", """
-			<p>Backward-compatible alias for <code>interruptChain(...values)</code>.</p>
-			<pre>interrupChain('Legacy spelling still works');</pre>
-			<pre>context.interrupChain('Stop from context alias');</pre>
-			<pre>if (!response.body.ok) interrupChain('Not ok', response.body);</pre>
-			"""));
-		chain.add(node("proceed()", """
-			<p>Clears a previous <code>skip</code> or <code>interrupt</code> decision in the same script.</p>
-			<pre>skip('default skip');
-if (response.body.forceRun) proceed();</pre>
-			<pre>interruptChain('missing approval');
-if (chainContext.get('override')) proceed();</pre>
-			<pre>context.proceed();</pre>
-			"""));
-		root.add(chain);
-
-		DefaultMutableTreeNode assertions = category("Assertions", "Assertions", """
-			<p>Assertions write failures to Logs and do not throw. Script execution continues.</p>
-			""");
-		assertions.add(node("assert(actual, expected, message)", """
-			<p>Checks exact equality. JSON-like objects and arrays are compared structurally and mismatch
-			paths are logged.</p>
-			<pre>assert(response.statusCode, 200, 'Expected HTTP 200');</pre>
-			<pre>assert(response.body, { ok: true }, 'Expected response shape');</pre>
-			<pre>assert(response.body.items, [{ id: 1 }], 'Expected first item');</pre>
-			"""));
-		assertions.add(node("assert(actual, null, message)", """
-			<p>Truthiness check. Passes when <code>actual</code> exists and is not false.</p>
-			<pre>assert(vars.get('token'), null, 'Token must exist');</pre>
-			<pre>assert(response.body.id, null, 'Response id is required');</pre>
-			<pre>assert(response.headers['content-type'], null, 'Content-Type is required');</pre>
-			"""));
-		root.add(assertions);
-
-		DefaultMutableTreeNode json = category("JSON", "JSON Helpers", """
-			<p>Use these helpers when converting between JavaScript objects and JSON text.</p>
-			""");
-		json.add(node("stringify(value)", """
-			<p>Converts a JavaScript value to JSON text. Strings are returned unchanged.</p>
-			<pre>request.body = stringify({ name: 'test', id: uuid() });</pre>
-			<pre>log(stringify(response.body));</pre>
-			<pre>vars.set('payload', stringify(request.body));</pre>
-			"""));
-		json.add(node("jsonify(value)", """
-			<p>Parses JSON text into a JavaScript object. Existing objects are returned as-is.</p>
-			<pre>var body = jsonify('{ "ok": true }');
-log(body.ok);</pre>
-			<pre>request.body = jsonify(vars.get('payload'));</pre>
-			<pre>var parsed = context.jsonify(response.body);</pre>
-			"""));
-		root.add(json);
-
-		DefaultMutableTreeNode random = category("Random", "Random Data Functions", """
-			<p>Random helpers are available as globals and through <code>context</code>.</p>
-			""");
-		random.add(node("uuid()", """
-			<p>Returns a random UUID string.</p>
-			<pre>request.headers.push({ name: 'X-Request-Id', value: uuid(), enabled: true });</pre>
-			<pre>request.body.id = uuid();</pre>
-			<pre>vars.set('correlationId', context.uuid());</pre>
-			"""));
-		random.add(node("randomString(size)", """
-			<p>Returns an alphanumeric random string with the requested size.</p>
-			<pre>request.body.username = 'user-' + randomString(8);</pre>
-			<pre>vars.set('password', randomString(16));</pre>
-			<pre>log('short id', randomString(6));</pre>
-			"""));
-		random.add(node("randomEmail()", """
-			<p>Returns a random email-like string.</p>
-			<pre>request.body.email = randomEmail();</pre>
-			<pre>vars.set('email', randomEmail());</pre>
-			<pre>log('new email', context.randomEmail());</pre>
-			"""));
-		random.add(node("randomNumber(from, to)", """
-			<p>Returns a random integer in the inclusive range.</p>
-			<pre>request.body.age = randomNumber(18, 65);</pre>
-			<pre>request.params.push({ name: 'limit', value: randomNumber(1, 100), enabled: true });</pre>
-			<pre>vars.set('retryCount', randomNumber(1, 3));</pre>
-			"""));
-		random.add(node("randomDouble(from, to)", """
-			<p>Returns a decimal string with 10 digits after the decimal point.</p>
-			<pre>request.body.price = randomDouble(1, 100);</pre>
-			<pre>vars.set('score', randomDouble(0, 1));</pre>
-			<pre>log('ratio', randomDouble(10, 20));</pre>
-			"""));
-		random.add(node("randomDouble(from, to, afterComma)", """
-			<p>Returns a decimal string with exactly <code>afterComma</code> digits after the decimal point.</p>
-			<pre>request.body.price = randomDouble(1, 100, 2);</pre>
-			<pre>vars.set('latency', randomDouble(10, 20, 3));</pre>
-			<pre>log('percent', randomDouble(0, 100, 1));</pre>
-			"""));
-		root.add(random);
-
-		DefaultMutableTreeNode dates = category("Dates", "Date And Time Functions", """
-			<p>Date helpers use UTC. The <code>Millils</code> spelling is kept as implemented.</p>
-			""");
-		addDateNode(dates, "randomIsoDate()", "random UTC ISO 8601 offset date-time", "request.body.expiresAt = randomIsoDate();");
-		addDateNode(dates, "randomRfcDate()", "random UTC RFC 1123 date-time", "request.headers.push({ name: 'X-Date', value: randomRfcDate(), enabled: true });");
-		addDateNode(dates, "randomDateTime()", "random UTC date-time in yyyy-MM-dd HH:mm:ss.SSS format", "request.body.createdAt = randomDateTime();");
-		addDateNode(dates, "randomDate()", "random UTC date in yyyy-MM-dd format", "request.body.birthDate = randomDate();");
-		addDateNode(dates, "randomTime()", "random UTC time in HH:mm:ss.SSS format", "request.body.startTime = randomTime();");
-		addDateNode(dates, "randomMillilsDate()", "random epoch milliseconds", "request.body.timestamp = randomMillilsDate();");
-		addDateNode(dates, "randomEpochSecondsDate()", "random epoch seconds", "request.body.timestampSeconds = randomEpochSecondsDate();");
-		addDateNode(dates, "currentIsoDate()", "current UTC ISO 8601 offset date-time", "request.body.sentAt = currentIsoDate();");
-		addDateNode(dates, "currentRfcDate()", "current UTC RFC 1123 date-time", "request.headers.push({ name: 'Date', value: currentRfcDate(), enabled: true });");
-		addDateNode(dates, "currentDateTime()", "current UTC date-time in yyyy-MM-dd HH:mm:ss.SSS format", "vars.set('now', currentDateTime());");
-		addDateNode(dates, "currentDate()", "current UTC date in yyyy-MM-dd format", "request.params.push({ name: 'date', value: currentDate(), enabled: true });");
-		addDateNode(dates, "currentTime()", "current UTC time in HH:mm:ss.SSS format", "request.body.time = currentTime();");
-		addDateNode(dates, "currentMillilsDate()", "current epoch milliseconds", "request.body.timestamp = currentMillilsDate();");
-		addDateNode(dates, "currentEpochSecondsDate()", "current epoch seconds", "request.body.timestampSeconds = currentEpochSecondsDate();");
-		root.add(dates);
-
-		DefaultMutableTreeNode templates = category("Templates", "Placeholder Templates", """
-			<p>Templates are resolved after Before Request scripts and before transport. They can be used
-			in URL, headers, params, body, form-data values, binary file path, Kafka fields, and gRPC
-			endpoint fields.</p>
-			""");
-		templates.add(node("{{name}}", """
-			<p>Reads values from <code>vars</code>, then <code>chainContext</code>, then
-			<code>globalContext</code>.</p>
-			<pre>URL: {{baseUrl}}/users/{{userId}}</pre>
-			<pre>Header value: Bearer {{token}}</pre>
-			<pre>{ "tenantId": "{{tenantId}}" }</pre>
-			"""));
-		templates.add(node("Bare JSON placeholders", """
-			<p>When a whole JSON value is a placeholder, the original value type is preserved. Missing
-			values become JSON <code>null</code>.</p>
-			<pre>{ "id": {{userId}} }</pre>
-			<pre>{ "enabled": {{isEnabled}} }</pre>
-			<pre>{ "missing": {{unknownValue}} } // becomes null</pre>
-			"""));
-		templates.add(node("Template functions", """
-			<p>Template expressions can call built-in generator functions.</p>
-			<pre>{ "id": "{{uuid()}}" }</pre>
-			<pre>{ "email": "{{randomEmail()}}" }</pre>
-			<pre>{ "createdAt": "{{currentIsoDate()}}" }</pre>
-			"""));
-		root.add(templates);
-
-		return root;
+	private static String readResource(String resource) {
+		InputStream stream = WebrunnerInfoDialog.class.getClassLoader().getResourceAsStream(resource);
+		if (stream == null) {
+			return "# Documentation unavailable\n\nMissing packaged resource `" + resource + "`.";
+		}
+		try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+			StringBuilder text = new StringBuilder();
+			String line;
+			while ((line = reader.readLine()) != null) {
+				text.append(line).append('\n');
+			}
+			return text.toString();
+		} catch (Exception error) {
+			return "# Documentation unavailable\n\nCould not read `" + resource + "`: `" + error.getMessage() + "`.";
+		}
 	}
 
-	private static void addDateNode(DefaultMutableTreeNode parent, String name, String description, String firstExample) {
-		String call = name.substring(0, name.indexOf('('));
-		parent.add(node(
-			name,
-			"<p>Returns " + description + ".</p>" +
-				"<pre>" + firstExample + "</pre>" +
-				"<pre>vars.set('value', " + call + "());</pre>" +
-				"<pre>log('" + call + "', context." + call + "());</pre>"
-		));
+	private static String firstHeading(String markdown, String fallback) {
+		if (markdown == null) {
+			return fallback;
+		}
+		for (String line : markdown.split("\\R")) {
+			if (line.startsWith("# ")) {
+				return line.substring(2).trim();
+			}
+		}
+		return fallback;
 	}
 
-	private static DefaultMutableTreeNode category(String treeTitle, String title, String html) {
-		return node(treeTitle, "<h1>" + title + "</h1>" + html);
-	}
-
-	private static DefaultMutableTreeNode node(String title, String html) {
-		return new DefaultMutableTreeNode(new DocNode(title, html));
-	}
-
-	private static String introHtml() {
-		return """
-			<h1>Webrunner Scripting API</h1>
-			<p>This page describes all scripting globals currently exposed by Webrunner.</p>
-			<ul>
-			  <li>Expand a section in the tree to see functions and objects.</li>
-			  <li>Select a function to see usage notes and examples.</li>
-			  <li>Examples are valid for Before Request, After Request, Chain scripts, or Global Context where the referenced objects are available.</li>
-			</ul>
-			""";
+	private static String normalizeDocLink(String target) {
+		if (target == null || target.isBlank()) {
+			return null;
+		}
+		String normalized = target.trim();
+		int hash = normalized.indexOf('#');
+		if (hash >= 0) {
+			normalized = normalized.substring(0, hash);
+		}
+		if (normalized.isBlank()) {
+			return null;
+		}
+		try {
+			URI uri = URI.create(normalized);
+			if (uri.isAbsolute()) {
+				return null;
+			}
+		} catch (Exception ignored) {
+			return null;
+		}
+		normalized = normalized.replace('\\', '/');
+		int slash = normalized.lastIndexOf('/');
+		if (slash >= 0) {
+			normalized = normalized.substring(slash + 1);
+		}
+		return normalized.toLowerCase(Locale.ROOT).endsWith(".md") ? normalized : null;
 	}
 
 	private static String page(String body) {
-		return """
+		String background = color(JBColor.PanelBackground);
+		String foreground = color(JBColor.foreground());
+		String border = color(JBColor.border());
+		String codeBackground = color(new JBColor(0xf5f5f5, 0x2b2d30));
+		String link = color(new JBColor(0x0b5cad, 0x7ab7ff));
+		return String.format("""
 			<html>
 			<head>
 			  <style>
-			    body { font-family: sans-serif; font-size: 12px; margin: 12px; color: #dddddd; }
-			    h1 { font-size: 18px; margin: 0 0 10px 0; color: #ffffff; }
-			    p { margin: 0 0 9px 0; }
-			    ul { margin-top: 4px; }
+			    body {
+			      font-family: sans-serif;
+			      font-size: 12px;
+			      margin: 14px;
+			      color: %s;
+			      background: %s;
+			    }
+			    h1 { font-size: 22px; margin: 0 0 12px 0; }
+			    h2 { font-size: 17px; margin: 18px 0 8px 0; }
+			    h3 { font-size: 14px; margin: 14px 0 6px 0; }
+			    p { margin: 0 0 9px 0; line-height: 1.35; }
+			    ul, ol { margin-top: 3px; margin-bottom: 10px; }
 			    li { margin-bottom: 4px; }
-			    code { font-family: monospace; color: #9cdcfe; }
-			    pre { font-family: monospace; font-size: 12px; background: #2b2d30; color: #e6e6e6; padding: 8px; margin: 8px 0; }
+			    a { color: %s; text-decoration: underline; }
+			    code {
+			      font-family: monospace;
+			      background: %s;
+			      padding: 1px 3px;
+			    }
+			    pre {
+			      font-family: monospace;
+			      font-size: 12px;
+			      background: %s;
+			      border: 1px solid %s;
+			      padding: 8px;
+			      margin: 8px 0 12px 0;
+			    }
+			    table { border-collapse: collapse; margin: 8px 0 12px 0; }
+			    th, td { border: 1px solid %s; padding: 4px 7px; }
+			    th { font-weight: bold; background: %s; }
 			  </style>
 			</head>
 			<body>
-			""" + body + """
+			%s
 			</body>
 			</html>
-			""";
+			""", foreground, background, link, codeBackground, codeBackground, border, border, codeBackground, body);
 	}
 
-	private static final class DocNode {
-		private final String title;
-		private final String html;
+	private static String color(java.awt.Color color) {
+		return String.format("#%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue());
+	}
 
-		private DocNode(String title, String html) {
-			this.title = title;
-			this.html = html;
-		}
+	private record DocFile(String name, String title) {
+	}
 
+	private record DocPage(String name, String title, String html) {
 		@Override
 		public String toString() {
 			return title;
+		}
+	}
+
+	private static final class MarkdownRenderer {
+		private MarkdownRenderer() {
+		}
+
+		private static String render(String markdown) {
+			List<String> lines = List.of((markdown == null ? "" : markdown).split("\\R", -1));
+			StringBuilder html = new StringBuilder();
+			StringBuilder paragraph = new StringBuilder();
+			boolean inCode = false;
+			boolean inUl = false;
+			boolean inOl = false;
+			boolean inTable = false;
+			for (int index = 0; index < lines.size(); index++) {
+				String line = lines.get(index);
+				String trimmed = line.trim();
+				if (trimmed.startsWith("```")) {
+					closeParagraph(html, paragraph);
+					if (inCode) {
+						html.append("</code></pre>\n");
+						inCode = false;
+					} else {
+						closeLists(html, inUl, inOl);
+						inUl = false;
+						inOl = false;
+						inTable = closeTable(html, inTable);
+						html.append("<pre><code>");
+						inCode = true;
+					}
+					continue;
+				}
+				if (inCode) {
+					html.append(escape(line)).append('\n');
+					continue;
+				}
+				if (trimmed.isBlank()) {
+					closeParagraph(html, paragraph);
+					closeLists(html, inUl, inOl);
+					inUl = false;
+					inOl = false;
+					inTable = closeTable(html, inTable);
+					continue;
+				}
+				if (isTableRow(trimmed)) {
+					closeParagraph(html, paragraph);
+					closeLists(html, inUl, inOl);
+					inUl = false;
+					inOl = false;
+					if (index + 1 < lines.size() && isTableSeparator(lines.get(index + 1).trim())) {
+						if (!inTable) {
+							html.append("<table>\n");
+							inTable = true;
+						}
+						appendTableRow(html, trimmed, true);
+						index++;
+					} else if (inTable) {
+						appendTableRow(html, trimmed, false);
+					} else {
+						appendParagraphText(paragraph, trimmed);
+					}
+					continue;
+				}
+				inTable = closeTable(html, inTable);
+				if (trimmed.startsWith("#")) {
+					closeParagraph(html, paragraph);
+					closeLists(html, inUl, inOl);
+					inUl = false;
+					inOl = false;
+					int level = headingLevel(trimmed);
+					if (level > 0) {
+						String text = trimmed.substring(level).trim();
+						level = Math.min(level, 3);
+						html.append("<h").append(level).append(">")
+							.append(inline(text))
+							.append("</h").append(level).append(">\n");
+						continue;
+					}
+				}
+				if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+					closeParagraph(html, paragraph);
+					if (inOl) {
+						html.append("</ol>\n");
+						inOl = false;
+					}
+					if (!inUl) {
+						html.append("<ul>\n");
+						inUl = true;
+					}
+					html.append("<li>").append(inline(trimmed.substring(2).trim())).append("</li>\n");
+					continue;
+				}
+				int orderedOffset = orderedListOffset(trimmed);
+				if (orderedOffset > 0) {
+					closeParagraph(html, paragraph);
+					if (inUl) {
+						html.append("</ul>\n");
+						inUl = false;
+					}
+					if (!inOl) {
+						html.append("<ol>\n");
+						inOl = true;
+					}
+					html.append("<li>").append(inline(trimmed.substring(orderedOffset).trim())).append("</li>\n");
+					continue;
+				}
+				closeLists(html, inUl, inOl);
+				inUl = false;
+				inOl = false;
+				appendParagraphText(paragraph, trimmed);
+			}
+			closeParagraph(html, paragraph);
+			closeLists(html, inUl, inOl);
+			closeTable(html, inTable);
+			if (inCode) {
+				html.append("</code></pre>\n");
+			}
+			return html.toString();
+		}
+
+		private static void appendParagraphText(StringBuilder paragraph, String text) {
+			if (paragraph.length() > 0) {
+				paragraph.append(' ');
+			}
+			paragraph.append(text);
+		}
+
+		private static void closeParagraph(StringBuilder html, StringBuilder paragraph) {
+			if (paragraph.length() == 0) {
+				return;
+			}
+			html.append("<p>").append(inline(paragraph.toString())).append("</p>\n");
+			paragraph.setLength(0);
+		}
+
+		private static void closeLists(StringBuilder html, boolean inUl, boolean inOl) {
+			if (inUl) {
+				html.append("</ul>\n");
+			}
+			if (inOl) {
+				html.append("</ol>\n");
+			}
+		}
+
+		private static boolean closeTable(StringBuilder html, boolean inTable) {
+			if (inTable) {
+				html.append("</table>\n");
+			}
+			return false;
+		}
+
+		private static int headingLevel(String text) {
+			int level = 0;
+			while (level < text.length() && text.charAt(level) == '#') {
+				level++;
+			}
+			return level > 0 && level < text.length() && Character.isWhitespace(text.charAt(level)) ? level : 0;
+		}
+
+		private static int orderedListOffset(String text) {
+			int index = 0;
+			while (index < text.length() && Character.isDigit(text.charAt(index))) {
+				index++;
+			}
+			if (index == 0 || index + 1 >= text.length()) {
+				return -1;
+			}
+			return text.charAt(index) == '.' && Character.isWhitespace(text.charAt(index + 1)) ? index + 2 : -1;
+		}
+
+		private static boolean isTableRow(String text) {
+			return text.startsWith("|") && text.endsWith("|");
+		}
+
+		private static boolean isTableSeparator(String text) {
+			if (!isTableRow(text)) {
+				return false;
+			}
+			String compact = text.replace("|", "").replace(":", "").replace("-", "").trim();
+			return compact.isEmpty();
+		}
+
+		private static void appendTableRow(StringBuilder html, String row, boolean header) {
+			html.append("<tr>");
+			String[] cells = row.substring(1, row.length() - 1).split("\\|", -1);
+			String tag = header ? "th" : "td";
+			for (String cell : cells) {
+				html.append('<').append(tag).append('>')
+					.append(inline(cell.trim()))
+					.append("</").append(tag).append('>');
+			}
+			html.append("</tr>\n");
+		}
+
+		private static String inline(String text) {
+			StringBuilder html = new StringBuilder();
+			for (int index = 0; index < text.length(); index++) {
+				char ch = text.charAt(index);
+				if (ch == '`') {
+					int end = text.indexOf('`', index + 1);
+					if (end > index) {
+						html.append("<code>").append(escape(text.substring(index + 1, end))).append("</code>");
+						index = end;
+						continue;
+					}
+				}
+				if (ch == '[') {
+					int labelEnd = text.indexOf(']', index + 1);
+					if (labelEnd > index && labelEnd + 1 < text.length() && text.charAt(labelEnd + 1) == '(') {
+						int hrefEnd = text.indexOf(')', labelEnd + 2);
+						if (hrefEnd > labelEnd) {
+							String label = text.substring(index + 1, labelEnd);
+							String href = text.substring(labelEnd + 2, hrefEnd);
+							html.append("<a href=\"").append(escapeAttribute(href)).append("\">")
+								.append(escape(label))
+								.append("</a>");
+							index = hrefEnd;
+							continue;
+						}
+					}
+				}
+				html.append(escapeChar(ch));
+			}
+			return html.toString();
+		}
+
+		private static String escape(String value) {
+			StringBuilder escaped = new StringBuilder();
+			for (int index = 0; index < value.length(); index++) {
+				escaped.append(escapeChar(value.charAt(index)));
+			}
+			return escaped.toString();
+		}
+
+		private static String escapeAttribute(String value) {
+			return escape(value).replace("\"", "&quot;");
+		}
+
+		private static String escapeChar(char ch) {
+			return switch (ch) {
+				case '<' -> "&lt;";
+				case '>' -> "&gt;";
+				case '&' -> "&amp;";
+				case '"' -> "&quot;";
+				default -> String.valueOf(ch);
+			};
 		}
 	}
 }

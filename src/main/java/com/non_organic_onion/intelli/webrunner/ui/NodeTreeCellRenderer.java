@@ -5,6 +5,7 @@ import com.non_organic_onion.intelli.webrunner.state.NodeState;
 import com.non_organic_onion.intelli.webrunner.state.NodeType;
 import com.non_organic_onion.intelli.webrunner.state.RequestDetailsState;
 import com.non_organic_onion.intelli.webrunner.state.RequestType;
+import com.intellij.openapi.util.IconLoader;
 import com.intellij.ui.JBColor;
 
 import javax.swing.Icon;
@@ -24,6 +25,17 @@ import java.util.Locale;
  * Renders request-tree nodes with folder icons or request-type badges.
  */
 public final class NodeTreeCellRenderer extends DefaultTreeCellRenderer {
+	private static final Icon GRPC_UNARY_ICON = IconLoader.getIcon("/icons/proto-u.svg", NodeTreeCellRenderer.class);
+	private static final Icon GRPC_CLIENT_STREAM_ICON =
+		IconLoader.getIcon("/icons/proto-up.svg", NodeTreeCellRenderer.class);
+	private static final Icon GRPC_SERVER_STREAM_ICON =
+		IconLoader.getIcon("/icons/proto-down.svg", NodeTreeCellRenderer.class);
+	private static final Icon GRPC_BIDI_STREAM_ICON =
+		IconLoader.getIcon("/icons/proto-bi.svg", NodeTreeCellRenderer.class);
+	private static final Icon KAFKA_SEND_ICON = IconLoader.getIcon("/icons/kafka-send.svg", NodeTreeCellRenderer.class);
+	private static final Icon KAFKA_LISTEN_ICON =
+		IconLoader.getIcon("/icons/kafka-listen.svg", NodeTreeCellRenderer.class);
+
 	private final GlobalWebrunnerStateService stateService;
 
 	public NodeTreeCellRenderer(GlobalWebrunnerStateService stateService) {
@@ -46,11 +58,28 @@ public final class NodeTreeCellRenderer extends DefaultTreeCellRenderer {
 			setText(state.name == null ? "" : state.name);
 			if (state.type == NodeType.FOLDER) {
 				setIcon(expanded ? getDefaultOpenIcon() : getDefaultClosedIcon());
+			} else if (state.requestType == RequestType.GRPC) {
+				setIcon(resolveGrpcIcon(state));
+			} else if (state.requestType == RequestType.KAFKA) {
+				setIcon(KAFKA_SEND_ICON);
+			} else if (state.requestType == RequestType.KAFKA_LISTEN) {
+				setIcon(KAFKA_LISTEN_ICON);
 			} else {
 				setIcon(new RequestBadgeIcon(resolveBadgeText(state), resolveBadgeColor(state)));
 			}
 		}
 		return component;
+	}
+
+	private Icon resolveGrpcIcon(NodeState state) {
+		RequestDetailsState details = stateService.getRequestDetails(state.id);
+		String kind = details == null || details.grpcStreamingKind == null ? "" : details.grpcStreamingKind;
+		return switch (kind) {
+			case "CLIENT" -> GRPC_CLIENT_STREAM_ICON;
+			case "SERVER" -> GRPC_SERVER_STREAM_ICON;
+			case "BIDI" -> GRPC_BIDI_STREAM_ICON;
+			default -> GRPC_UNARY_ICON;
+		};
 	}
 
 	private String resolveBadgeText(NodeState state) {

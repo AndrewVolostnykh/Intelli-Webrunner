@@ -12,4 +12,5 @@ public class WebrunnerState {
     public List<HeaderPresetState> headerPresets = new ArrayList<>();
     public GlobalContextState globalContext = new GlobalContextState();
     public boolean stressTestsEnabled = true;
+    public int defaultTimeoutMillis = 0;
 }

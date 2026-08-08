@@ -95,7 +95,8 @@ public final class HttpStressExecutionService {
 			request.chainRequests(),
 			request.payloadType(),
 			request.formData(),
-			request.binaryFilePath()
+			request.binaryFilePath(),
+			request.timeoutMillis()
 		);
 	}
 

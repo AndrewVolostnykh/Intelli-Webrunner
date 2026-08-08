@@ -21,9 +21,8 @@ import java.util.Map;
 import java.util.UUID;
 
 public class HttpExecutor {
-    private final HttpClient client = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
-            .build();
+    private static final int DEFAULT_TIMEOUT_MILLIS = 0;
+    private final HttpClient client = HttpClient.newBuilder().build();
 
     public HttpExecutionResponse execute(String method, String url, List<HeaderEntryState> headers, String body)
             throws IOException, InterruptedException {
@@ -39,9 +38,22 @@ public class HttpExecutor {
             String binaryFilePath,
             HttpPayloadType payloadType
     ) throws IOException, InterruptedException {
+        return execute(method, url, headers, body, formData, binaryFilePath, payloadType, DEFAULT_TIMEOUT_MILLIS);
+    }
+
+    public HttpExecutionResponse execute(
+            String method,
+            String url,
+            List<HeaderEntryState> headers,
+            String body,
+            List<FormEntryState> formData,
+            String binaryFilePath,
+            HttpPayloadType payloadType,
+            int timeoutMillis
+    ) throws IOException, InterruptedException {
         HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .timeout(Duration.ofSeconds(30));
+                .uri(URI.create(url));
+        applyTimeout(builder, timeoutMillis);
 
         HttpRequest.BodyPublisher publisher;
         HttpPayloadType resolved = payloadType == null ? HttpPayloadType.RAW : payloadType;
@@ -94,9 +106,22 @@ public class HttpExecutor {
             String binaryFilePath,
             HttpPayloadType payloadType
     ) throws IOException, InterruptedException {
+        return executeBinary(method, url, headers, body, formData, binaryFilePath, payloadType, DEFAULT_TIMEOUT_MILLIS);
+    }
+
+    public HttpExecutionResponse executeBinary(
+            String method,
+            String url,
+            List<HeaderEntryState> headers,
+            String body,
+            List<FormEntryState> formData,
+            String binaryFilePath,
+            HttpPayloadType payloadType,
+            int timeoutMillis
+    ) throws IOException, InterruptedException {
         HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .timeout(Duration.ofSeconds(30));
+                .uri(URI.create(url));
+        applyTimeout(builder, timeoutMillis);
 
         HttpRequest.BodyPublisher publisher;
         HttpPayloadType resolved = payloadType == null ? HttpPayloadType.RAW : payloadType;
@@ -179,6 +204,12 @@ public class HttpExecutor {
             builder.append(URLEncoder.encode(entry.value == null ? "" : entry.value, StandardCharsets.UTF_8));
         }
         return builder.toString();
+    }
+
+    private void applyTimeout(HttpRequest.Builder builder, int timeoutMillis) {
+        if (timeoutMillis > 0) {
+            builder.timeout(Duration.ofMillis(timeoutMillis));
+        }
     }
 
     private HttpRequest.BodyPublisher buildMultipartPublisher(

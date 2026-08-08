@@ -19,8 +19,26 @@ public record HttpStressRequest(
 	List<FormEntryState> formData,
 	String binaryFilePath,
 	VarsStore chainContext,
-	Map<String, Object> chainRequests
+	Map<String, Object> chainRequests,
+	int timeoutMillis
 ) {
+	public HttpStressRequest(
+		String method,
+		String url,
+		List<HeaderEntryState> headers,
+		List<HeaderEntryState> params,
+		String body,
+		String before,
+		String after,
+		String payloadType,
+		List<FormEntryState> formData,
+		String binaryFilePath,
+		VarsStore chainContext,
+		Map<String, Object> chainRequests
+	) {
+		this(method, url, headers, params, body, before, after, payloadType, formData, binaryFilePath, chainContext, chainRequests, 0);
+	}
+
 	public HttpStressRequest(
 		String method,
 		String url,
@@ -34,7 +52,23 @@ public record HttpStressRequest(
 		String binaryFilePath,
 		VarsStore chainContext
 	) {
-		this(method, url, headers, params, body, before, after, payloadType, formData, binaryFilePath, chainContext, Map.of());
+		this(method, url, headers, params, body, before, after, payloadType, formData, binaryFilePath, chainContext, Map.of(), 0);
+	}
+
+	public HttpStressRequest(
+		String method,
+		String url,
+		List<HeaderEntryState> headers,
+		List<HeaderEntryState> params,
+		String body,
+		String before,
+		String after,
+		String payloadType,
+		List<FormEntryState> formData,
+		String binaryFilePath,
+		int timeoutMillis
+	) {
+		this(method, url, headers, params, body, before, after, payloadType, formData, binaryFilePath, null, Map.of(), timeoutMillis);
 	}
 
 	public HttpStressRequest(
@@ -49,6 +83,6 @@ public record HttpStressRequest(
 		List<FormEntryState> formData,
 		String binaryFilePath
 	) {
-		this(method, url, headers, params, body, before, after, payloadType, formData, binaryFilePath, null, Map.of());
+		this(method, url, headers, params, body, before, after, payloadType, formData, binaryFilePath, null, Map.of(), 0);
 	}
 }

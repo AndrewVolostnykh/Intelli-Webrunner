@@ -36,6 +36,7 @@ import java.util.Map;
  * editor and the chain runner while still resolving the shared persisted global context.
  */
 public final class RequestExecutionService {
+	private static final int DEFAULT_TIMEOUT_MILLIS = 0;
 
 	private final TemplateEngine templateEngine;
 	private final ScriptRuntime scriptRuntime;
@@ -87,7 +88,41 @@ public final class RequestExecutionService {
 			null,
 			payloadType,
 			formData,
-			binaryFilePath
+			binaryFilePath,
+			DEFAULT_TIMEOUT_MILLIS
+		);
+	}
+
+	public ExecutionResult executeWithScripts(
+		String method,
+		String url,
+		List<HeaderEntryState> headers,
+		List<HeaderEntryState> params,
+		String body,
+		String before,
+		String after,
+		boolean forChain,
+		VarsStore sharedVars,
+		String payloadType,
+		List<FormEntryState> formData,
+		String binaryFilePath,
+		int timeoutMillis
+	) {
+		return executeWithScripts(
+			method,
+			url,
+			headers,
+			params,
+			body,
+			before,
+			after,
+			forChain,
+			sharedVars,
+			null,
+			payloadType,
+			formData,
+			binaryFilePath,
+			timeoutMillis
 		);
 	}
 
@@ -120,7 +155,43 @@ public final class RequestExecutionService {
 			Map.of(),
 			payloadType,
 			formData,
-			binaryFilePath
+			binaryFilePath,
+			DEFAULT_TIMEOUT_MILLIS
+		);
+	}
+
+	public ExecutionResult executeWithScripts(
+		String method,
+		String url,
+		List<HeaderEntryState> headers,
+		List<HeaderEntryState> params,
+		String body,
+		String before,
+		String after,
+		boolean forChain,
+		VarsStore sharedVars,
+		VarsStore chainContext,
+		String payloadType,
+		List<FormEntryState> formData,
+		String binaryFilePath,
+		int timeoutMillis
+	) {
+		return executeWithScripts(
+			method,
+			url,
+			headers,
+			params,
+			body,
+			before,
+			after,
+			forChain,
+			sharedVars,
+			chainContext,
+			Map.of(),
+			payloadType,
+			formData,
+			binaryFilePath,
+			timeoutMillis
 		);
 	}
 
@@ -139,6 +210,42 @@ public final class RequestExecutionService {
 		String payloadType,
 		List<FormEntryState> formData,
 		String binaryFilePath
+	) {
+		return executeWithScripts(
+			method,
+			url,
+			headers,
+			params,
+			body,
+			before,
+			after,
+			forChain,
+			sharedVars,
+			chainContext,
+			chainRequests,
+			payloadType,
+			formData,
+			binaryFilePath,
+			DEFAULT_TIMEOUT_MILLIS
+		);
+	}
+
+	public ExecutionResult executeWithScripts(
+		String method,
+		String url,
+		List<HeaderEntryState> headers,
+		List<HeaderEntryState> params,
+		String body,
+		String before,
+		String after,
+		boolean forChain,
+		VarsStore sharedVars,
+		VarsStore chainContext,
+		Map<String, Object> chainRequests,
+		String payloadType,
+		List<FormEntryState> formData,
+		String binaryFilePath,
+		int timeoutMillis
 	) {
 		long startedAt = System.nanoTime();
 		VarsStore vars = sharedVars == null ? new VarsStore() : sharedVars;
@@ -214,7 +321,8 @@ public final class RequestExecutionService {
 					templatedBody,
 					templatedFormData,
 					templatedBinaryPath,
-					PayloadTypes.resolveType(payloadType)
+					PayloadTypes.resolveType(payloadType),
+					normalizeTimeout(timeoutMillis)
 				);
 			try {
 				ScriptRequest afterRequest = new ScriptRequest(
@@ -284,6 +392,34 @@ public final class RequestExecutionService {
 		List<FormEntryState> formData,
 		String binaryFilePath
 	) {
+		return executeWithScriptsDownload(
+			method,
+			url,
+			headers,
+			params,
+			body,
+			before,
+			after,
+			payloadType,
+			formData,
+			binaryFilePath,
+			DEFAULT_TIMEOUT_MILLIS
+		);
+	}
+
+	public DownloadResult executeWithScriptsDownload(
+		String method,
+		String url,
+		List<HeaderEntryState> headers,
+		List<HeaderEntryState> params,
+		String body,
+		String before,
+		String after,
+		String payloadType,
+		List<FormEntryState> formData,
+		String binaryFilePath,
+		int timeoutMillis
+	) {
 		long startedAt = System.nanoTime();
 		VarsStore vars = new VarsStore();
 		List<String> logs = new ArrayList<>();
@@ -335,7 +471,8 @@ public final class RequestExecutionService {
 					templatedBody,
 					templatedFormData,
 					templatedBinaryPath,
-					PayloadTypes.resolveType(payloadType)
+					PayloadTypes.resolveType(payloadType),
+					normalizeTimeout(timeoutMillis)
 				);
 			try {
 				ScriptRequest afterRequest = new ScriptRequest(
@@ -399,6 +536,19 @@ public final class RequestExecutionService {
 		String before,
 		String after,
 		VarsStore sharedVars,
+		int timeoutMillis
+	) {
+		return executeGrpcWithScripts(details, headers, params, body, before, after, sharedVars, null, Map.of(), timeoutMillis);
+	}
+
+	public ExecutionResult executeGrpcWithScripts(
+		RequestDetailsState details,
+		List<HeaderEntryState> headers,
+		List<HeaderEntryState> params,
+		String body,
+		String before,
+		String after,
+		VarsStore sharedVars,
 		VarsStore chainContext
 	) {
 		return executeGrpcWithScripts(details, headers, params, body, before, after, sharedVars, chainContext, Map.of());
@@ -413,7 +563,47 @@ public final class RequestExecutionService {
 		String after,
 		VarsStore sharedVars,
 		VarsStore chainContext,
+		int timeoutMillis
+	) {
+		return executeGrpcWithScripts(details, headers, params, body, before, after, sharedVars, chainContext, Map.of(), timeoutMillis);
+	}
+
+	public ExecutionResult executeGrpcWithScripts(
+		RequestDetailsState details,
+		List<HeaderEntryState> headers,
+		List<HeaderEntryState> params,
+		String body,
+		String before,
+		String after,
+		VarsStore sharedVars,
+		VarsStore chainContext,
 		Map<String, Object> chainRequests
+	) {
+		return executeGrpcWithScripts(
+			details,
+			headers,
+			params,
+			body,
+			before,
+			after,
+			sharedVars,
+			chainContext,
+			chainRequests,
+			DEFAULT_TIMEOUT_MILLIS
+		);
+	}
+
+	public ExecutionResult executeGrpcWithScripts(
+		RequestDetailsState details,
+		List<HeaderEntryState> headers,
+		List<HeaderEntryState> params,
+		String body,
+		String before,
+		String after,
+		VarsStore sharedVars,
+		VarsStore chainContext,
+		Map<String, Object> chainRequests,
+		int timeoutMillis
 	) {
 		long startedAt = System.nanoTime();
 		VarsStore vars = sharedVars == null ? new VarsStore() : sharedVars;
@@ -468,30 +658,58 @@ public final class RequestExecutionService {
 																  templatedDetails.service,
 																  templatedDetails.grpcMethod,
 																  templatedBody,
-																  templatedHeaders
+																  templatedHeaders,
+																  normalizeTimeout(timeoutMillis),
+																  message -> {
+																	  try {
+																		  scriptRuntime.runScript(
+																			  after,
+																			  new ScriptContext(
+																				  vars,
+																				  logger,
+																				  helpers,
+																				  new ScriptRequest(
+																					  templatedBody,
+																					  templatedHeaders,
+																					  templatedParams
+																				  ),
+																				  rawRequest,
+																				  message,
+																				  globalContext,
+																				  chainVars,
+																				  chainRequests,
+																				  flowControl
+																			  )
+																		  );
+																	  } catch (Exception error) {
+																		  logs.add("On Message error: " + error.getMessage());
+																	  }
+																  }
 			);
-			try {
-				scriptRuntime.runScript(
-					after,
-					new ScriptContext(
-						vars,
-						logger,
-						helpers,
-						new ScriptRequest(
-							templatedBody,
-							templatedHeaders,
-							templatedParams
-						),
-						rawRequest,
-						response,
-						globalContext,
-						chainVars,
-						chainRequests,
-						flowControl
-					)
-				);
-			} catch (Exception error) {
-				logs.add("After request error: " + error.getMessage());
+			if (!response.serverStreaming) {
+				try {
+					scriptRuntime.runScript(
+						after,
+						new ScriptContext(
+							vars,
+							logger,
+							helpers,
+							new ScriptRequest(
+								templatedBody,
+								templatedHeaders,
+								templatedParams
+							),
+							rawRequest,
+							response,
+							globalContext,
+							chainVars,
+							chainRequests,
+							flowControl
+						)
+					);
+				} catch (Exception error) {
+					logs.add("After request error: " + error.getMessage());
+				}
 			}
 			globalContextRuntime.persist(globalContext);
 			String responseHeaders = JsonUtils.toJson(response.headers);
@@ -533,6 +751,32 @@ public final class RequestExecutionService {
 		String partition,
 		VarsStore sharedVars
 	) {
+		return executeKafkaWithScripts(
+			details,
+			headers,
+			body,
+			before,
+			after,
+			keyType,
+			bodyType,
+			partition,
+			sharedVars,
+			DEFAULT_TIMEOUT_MILLIS
+		);
+	}
+
+	public ExecutionResult executeKafkaWithScripts(
+		RequestDetailsState details,
+		List<HeaderEntryState> headers,
+		String body,
+		String before,
+		String after,
+		String keyType,
+		String bodyType,
+		String partition,
+		VarsStore sharedVars,
+		int timeoutMillis
+	) {
 		long startedAt = System.nanoTime();
 		VarsStore vars = sharedVars == null ? new VarsStore() : sharedVars;
 		List<String> logs = new ArrayList<>();
@@ -572,6 +816,7 @@ public final class RequestExecutionService {
 			request.bodyType = bodyType;
 			request.partition = templatedPartition;
 			request.headers = templatedHeaders;
+			request.timeoutMillis = normalizeTimeout(timeoutMillis);
 			KafkaSendResult response = kafkaMessageProducer.send(request);
 			try {
 				scriptRuntime.runScript(
@@ -757,6 +1002,10 @@ public final class RequestExecutionService {
 			result.responseSnapshot,
 			result.flowStatus
 		);
+	}
+
+	private int normalizeTimeout(int timeoutMillis) {
+		return Math.max(0, timeoutMillis);
 	}
 
 	private ExecutionResult controlResult(

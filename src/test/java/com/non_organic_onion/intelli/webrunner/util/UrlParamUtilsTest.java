@@ -1,6 +1,9 @@
 package com.non_organic_onion.intelli.webrunner.util;
 
+import com.non_organic_onion.intelli.webrunner.state.HeaderEntryState;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -23,5 +26,24 @@ class UrlParamUtilsTest {
 	void addsHttpsForNonLocalhost() {
 		assertEquals("https://example.com/api", UrlParamUtils.applyDefaultProtocol("example.com/api"));
 		assertEquals("https://api.example.com:8443/users", UrlParamUtils.applyDefaultProtocol("api.example.com:8443/users"));
+	}
+
+	@Test
+	void replaceQueryParamsReplacesExistingQueryValues() {
+		assertEquals(
+			"https://api.test/users?a=blablabla",
+			UrlParamUtils.replaceQueryParams(
+				"https://api.test/users?a=random",
+				List.of(param("a", "blablabla"))
+			)
+		);
+	}
+
+	private static HeaderEntryState param(String name, String value) {
+		HeaderEntryState entry = new HeaderEntryState();
+		entry.name = name;
+		entry.value = value;
+		entry.enabled = true;
+		return entry;
 	}
 }

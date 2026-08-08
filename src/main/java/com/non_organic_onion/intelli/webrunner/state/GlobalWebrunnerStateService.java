@@ -34,6 +34,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         settings.collectionsFilePath = getCollectionsFilePath();
         settings.headerPresets = cloneHeaderPresets(state.headerPresets);
         settings.stressTestsEnabled = state.stressTestsEnabled;
+        settings.defaultTimeoutMillis = normalizeTimeout(state.defaultTimeoutMillis);
         return settings;
     }
 
@@ -43,6 +44,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         state.collectionsFilePath = blankToDefault(loaded.collectionsFilePath);
         state.headerPresets = loaded.headerPresets == null ? new ArrayList<>() : cloneHeaderPresets(loaded.headerPresets);
         state.stressTestsEnabled = loaded.stressTestsEnabled;
+        state.defaultTimeoutMillis = normalizeTimeout(loaded.defaultTimeoutMillis);
         applyCollectionsState(loaded);
         isLoading = false;
         loadCollectionsFromFileOrMigrate();
@@ -80,6 +82,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         snapshot.headerPresets = cloneHeaderPresets(state.headerPresets);
         snapshot.globalContext = cloneGlobalContext(state.globalContext);
         snapshot.stressTestsEnabled = state.stressTestsEnabled;
+        snapshot.defaultTimeoutMillis = normalizeTimeout(state.defaultTimeoutMillis);
         return snapshot;
     }
 
@@ -90,6 +93,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         applyCollectionsState(incoming);
         state.headerPresets = incoming.headerPresets == null ? new ArrayList<>() : cloneHeaderPresets(incoming.headerPresets);
         state.stressTestsEnabled = incoming.stressTestsEnabled;
+        state.defaultTimeoutMillis = normalizeTimeout(incoming.defaultTimeoutMillis);
         normalizeOrders();
         persistCollectionsState();
     }
@@ -214,6 +218,14 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         state.stressTestsEnabled = enabled;
     }
 
+    public int getDefaultTimeoutMillis() {
+        return normalizeTimeout(state.defaultTimeoutMillis);
+    }
+
+    public void saveDefaultTimeoutMillis(int timeoutMillis) {
+        state.defaultTimeoutMillis = normalizeTimeout(timeoutMillis);
+    }
+
     public GlobalContextState getGlobalContext() {
         return cloneGlobalContext(state.globalContext);
     }
@@ -285,6 +297,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             details.target = "";
             details.service = "";
             details.grpcMethod = "";
+            details.grpcStreamingKind = "UNARY";
         } else if (type == RequestType.KAFKA) {
             details.kafkaBootstrapServers = "";
             details.kafkaTopic = "";
@@ -293,6 +306,9 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             details.kafkaBootstrapServers = "";
             details.kafkaTopic = "";
             details.kafkaGroupId = safe(name) + "-webrunner";
+        }
+        if (type != RequestType.KAFKA_LISTEN) {
+            details.timeoutMillis = getDefaultTimeoutMillis();
         }
         state.requestDetails.add(details);
 
@@ -442,10 +458,12 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             existing.target = details.target;
             existing.service = details.service;
             existing.grpcMethod = details.grpcMethod;
+            existing.grpcStreamingKind = details.grpcStreamingKind;
             existing.kafkaBootstrapServers = details.kafkaBootstrapServers;
             existing.kafkaTopic = details.kafkaTopic;
             existing.kafkaKey = details.kafkaKey;
             existing.kafkaGroupId = details.kafkaGroupId;
+            existing.timeoutMillis = details.timeoutMillis;
         }
         persistCollectionsState();
     }
@@ -586,6 +604,10 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         return configDir.resolve(DEFAULT_COLLECTIONS_FILE_NAME).toString();
     }
 
+    private int normalizeTimeout(int timeoutMillis) {
+        return Math.max(0, timeoutMillis);
+    }
+
     private int nextOrder(String parentId) {
         int max = -1;
         for (NodeState node : state.nodes) {
@@ -701,10 +723,12 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         clone.target = details.target;
         clone.service = details.service;
         clone.grpcMethod = details.grpcMethod;
+        clone.grpcStreamingKind = details.grpcStreamingKind;
         clone.kafkaBootstrapServers = details.kafkaBootstrapServers;
         clone.kafkaTopic = details.kafkaTopic;
         clone.kafkaKey = details.kafkaKey;
         clone.kafkaGroupId = details.kafkaGroupId;
+        clone.timeoutMillis = details.timeoutMillis;
         return clone;
     }
 

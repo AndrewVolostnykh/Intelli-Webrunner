@@ -1578,15 +1578,18 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 			root,
 			stateService.getHeaderPresets(),
 			stateService.isStressTestsEnabled(),
+			stateService.getDefaultTimeoutMillis(),
 			stateService.getCollectionsFilePath(),
 			stateService.getSettingsFilePath(),
 			settings -> {
 				saveCurrentEditors();
 				stateService.saveHeaderPresets(settings.headerPresets());
 				stateService.saveStressTestsEnabled(settings.stressTestsEnabled());
+				stateService.saveDefaultTimeoutMillis(settings.defaultTimeoutMillis());
 				stateService.changeCollectionsFilePath(settings.collectionsFilePath());
 				editor.updateHeaderPresets(settings.headerPresets());
 				editor.setStressTestsEnabled(settings.stressTestsEnabled());
+				editor.setDefaultTimeoutMillis(settings.defaultTimeoutMillis());
 				currentNode = null;
 				editorCards.show(editorPanel, "empty");
 				reloadTree();

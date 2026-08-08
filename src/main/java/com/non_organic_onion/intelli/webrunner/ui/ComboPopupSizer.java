@@ -12,7 +12,6 @@ import javax.swing.event.PopupMenuListener;
 import javax.swing.plaf.basic.BasicComboPopup;
 import java.awt.Component;
 import java.awt.Dimension;
-import java.awt.FontMetrics;
 import java.awt.Insets;
 import java.util.function.IntSupplier;
 
@@ -82,15 +81,13 @@ public final class ComboPopupSizer {
 		}
 		JList<String> list = new JList<>();
 		list.setFont(comboBox.getFont());
-		FontMetrics metrics = list.getFontMetrics(list.getFont());
 		int width = 0;
 		ComboBoxModel<String> model = comboBox.getModel();
 		for (int i = 0; i < model.getSize(); i++) {
 			String value = model.getElementAt(i);
-			int textWidth = value == null ? 0 : metrics.stringWidth(value);
 			Component component = renderer.getListCellRendererComponent(list, value, i, false, false);
 			int preferredWidth = component.getPreferredSize().width;
-			width = Math.max(width, Math.max(textWidth, preferredWidth));
+			width = Math.max(width, preferredWidth);
 		}
 		Insets insets = list.getInsets();
 		width += (insets.left + insets.right + 12);

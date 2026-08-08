@@ -61,6 +61,8 @@ public class ScriptHelpers {
         }
         if (expected == null) {
             logger.log("Assertion failed" + (message == null ? "" : ": " + message));
+        } else if (actual == null) {
+            logger.log("Assertion failed" + (message == null ? "" : ": " + message) + " expected " + expected);
         } else {
             logger.log("Assertion failed" + (message == null ? "" : ": " + message) + " expected " + expected + " received " + actual);
         }

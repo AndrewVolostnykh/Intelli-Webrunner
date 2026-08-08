@@ -3,8 +3,8 @@ plugins {
     id 'org.jetbrains.intellij' version '1.17.3'
 }
 
-group = 'com.non-organic-onion.intelli.webrunner'
-version = '0.15.1'
+group = 'com.andrew-volostnykh.intelli.webrunner'
+version = '1.0.0'
 
 repositories {
     mavenCentral()
@@ -39,6 +39,13 @@ dependencies {
     implementation 'org.apache.kafka:kafka-clients:3.7.1'
     implementation 'org.mozilla:rhino:1.7.14'
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.3'
+}
+
+processResources {
+    from('docs') {
+        into 'docs'
+        include '*.md'
+    }
 }
 
 test {

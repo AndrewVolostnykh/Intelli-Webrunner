@@ -105,7 +105,7 @@ public final class ChainEditorPanel {
 	private final JButton chainRunButton = new JButton(AllIcons.Actions.Execute);
 	private final JButton chainStopButton = new JButton("\u25A0");
 	private final JButton chainDebugButton = new JButton(AllIcons.Actions.StartDebugger);
-	private final JButton chainNextButton = new JButton(AllIcons.Debugger.NextStatement);
+	private final JButton chainNextButton = new JButton(AllIcons.Actions.TraceOver);
 	private final JButton chainContextButton = new JButton(AllIcons.Nodes.Variable);
 	private final ConsoleView chainLogsArea;
 	private final FileType scriptFileType;
@@ -618,7 +618,8 @@ public final class ChainEditorPanel {
 							status.formData,
 							status.binaryFilePath,
 							session.chainContext,
-							session.chainRequests
+							session.chainRequests,
+							requestTimeout(details)
 						),
 						stressConfig
 					);
@@ -640,7 +641,8 @@ public final class ChainEditorPanel {
 											session.chainRequests,
 											details.payloadType,
 											status.formData,
-											status.binaryFilePath
+											status.binaryFilePath,
+											requestTimeout(details)
 				);
 			}
 		} else if (details.type == RequestType.GRPC) {
@@ -658,19 +660,20 @@ public final class ChainEditorPanel {
 											afterScript,
 											session.vars,
 											session.chainContext,
-											session.chainRequests
+											session.chainRequests,
+											requestTimeout(details)
 			);
 		} else {
 			session.logs.add("Unsupported request in chain: " + requestId);
 			updateChainUi(session, null);
 			return;
 		}
-		session.logs.add(result.logs);
+		appendExecutionLogs(session, result);
 		appendFlowLog(session, node, result);
 		updateChainStepResultState(stepIndex, result);
 		updateChainStepMetadata(stepIndex, result, parseSuccessCodes(chainStepStateAt(stepIndex).successCodes));
 		storeChainRequest(session, node, details, status, result);
-		if ("Interrupted".equals(result.flowStatus)) {
+		if ("Interrupted".equals(result.flowStatus) || hasAssertionFailure(result)) {
 			session.cancelled = true;
 		}
 
@@ -734,7 +737,9 @@ public final class ChainEditorPanel {
 	}
 
 	private void saveActiveChainStepUi() {
-		if (isLoading || isLoadingStep || activeStepIndex < 0 || activeStepIndex >= chainStepStates.size()) {
+		if (isLoading || isLoadingStep || activeStepIndex < 0
+			|| activeStepIndex >= chainStepStates.size()
+			|| activeStepIndex >= chainListModel.size()) {
 			return;
 		}
 		ChainStepState step = chainStepStates.get(activeStepIndex);
@@ -876,10 +881,35 @@ public final class ChainEditorPanel {
 	) {
 		String name = node == null ? "" : safe(node.name);
 		if ("Skipped".equals(result.flowStatus)) {
-			session.logs.add(SKIP_LOG_PREFIX + "Request " + name + " was Skipped.");
+			session.logs.add(SKIP_LOG_PREFIX + "Request '" + name + "' was skipped");
 		} else if ("Interrupted".equals(result.flowStatus)) {
 			session.logs.add(INTERRUPT_LOG_PREFIX + "Request " + name + " interrupted chain.");
 		}
+	}
+
+	private void appendExecutionLogs(
+		ChainSession session,
+		ExecutionResult result
+	) {
+		if (result == null || result.logs == null || result.logs.isBlank()) {
+			return;
+		}
+		for (String line : result.logs.split("\\R")) {
+			if (line == null || line.isBlank() || isFlowControlLog(line)) {
+				continue;
+			}
+			session.logs.add(line);
+		}
+	}
+
+	private boolean isFlowControlLog(String line) {
+		String trimmed = line == null ? "" : line.trim();
+		return trimmed.startsWith(SKIP_LOG_PREFIX)
+			|| trimmed.startsWith(INTERRUPT_LOG_PREFIX)
+			|| "Skipped before request send.".equals(trimmed)
+			|| "Skipped after request send.".equals(trimmed)
+			|| "Interrupted before request send.".equals(trimmed)
+			|| "Interrupted after request send.".equals(trimmed);
 	}
 
 	private void storeChainRequest(
@@ -970,6 +1000,10 @@ public final class ChainEditorPanel {
 		);
 	}
 
+	private int requestTimeout(RequestDetailsState details) {
+		return details == null ? stateService.getDefaultTimeoutMillis() : Math.max(0, details.timeoutMillis);
+	}
+
 	private String combineScripts(
 		String basicScript,
 		String chainScript
@@ -1038,6 +1072,9 @@ public final class ChainEditorPanel {
 	}
 
 	private String resolveStepStatus(ExecutionResult result, Set<Integer> successCodes) {
+		if (hasAssertionFailure(result)) {
+			return "Failed";
+		}
 		String flowStatus = flowStatus(result);
 		if (!flowStatus.isBlank()) {
 			return flowStatus;
@@ -1047,6 +1084,10 @@ public final class ChainEditorPanel {
 
 	private String flowStatus(ExecutionResult result) {
 		return result == null || result.flowStatus == null ? "" : result.flowStatus;
+	}
+
+	private boolean hasAssertionFailure(ExecutionResult result) {
+		return result != null && result.logs != null && result.logs.contains("Assertion failed");
 	}
 
 	private Set<Integer> parseSuccessCodes() {

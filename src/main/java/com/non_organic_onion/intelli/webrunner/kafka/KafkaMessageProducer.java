@@ -18,7 +18,6 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 public class KafkaMessageProducer {
-    private static final int TIMEOUT_MS = 10_000;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public KafkaSendResult send(KafkaSendRequest request) {
@@ -26,12 +25,15 @@ public class KafkaMessageProducer {
         byte[] key = encode(request.key, request.keyType, true);
         byte[] value = encode(request.body, request.bodyType, false);
         Integer partition = parsePartition(request.partition);
+        int timeoutMillis = Math.max(0, request.timeoutMillis);
 
         Properties properties = new Properties();
         properties.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, request.bootstrapServers.trim());
 		properties.put(CommonClientConfigs.CLIENT_ID_CONFIG, "intelli-webrunner-producer");
-		properties.put(CommonClientConfigs.REQUEST_TIMEOUT_MS_CONFIG, String.valueOf(TIMEOUT_MS));
-		properties.put(CommonClientConfigs.DEFAULT_API_TIMEOUT_MS_CONFIG, String.valueOf(TIMEOUT_MS));
+        if (timeoutMillis > 0) {
+		    properties.put(CommonClientConfigs.REQUEST_TIMEOUT_MS_CONFIG, String.valueOf(timeoutMillis));
+		    properties.put(CommonClientConfigs.DEFAULT_API_TIMEOUT_MS_CONFIG, String.valueOf(timeoutMillis));
+        }
 
 		ProducerRecord<byte[], byte[]> record = new ProducerRecord<>(request.topic.trim(), partition, key, value);
 		int headerCount = addHeaders(record, request);
@@ -40,7 +42,9 @@ public class KafkaMessageProducer {
 			new ByteArraySerializer(),
 			new ByteArraySerializer()
 		)) {
-            RecordMetadata metadata = producer.send(record).get(TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            RecordMetadata metadata = timeoutMillis > 0
+                ? producer.send(record).get(timeoutMillis, TimeUnit.MILLISECONDS)
+                : producer.send(record).get();
             return new KafkaSendResult(
                 metadata.topic(),
                 metadata.partition(),

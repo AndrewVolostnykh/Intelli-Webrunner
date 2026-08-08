@@ -9,8 +9,10 @@ public class RequestDetailsState {
     public String target;
     public String service;
     public String grpcMethod;
+    public String grpcStreamingKind;
     public String kafkaBootstrapServers;
     public String kafkaTopic;
     public String kafkaKey;
     public String kafkaGroupId;
+    public int timeoutMillis;
 }

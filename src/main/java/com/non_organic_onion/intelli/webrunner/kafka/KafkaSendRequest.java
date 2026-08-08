@@ -12,5 +12,6 @@ public class KafkaSendRequest {
     public String body;
     public String bodyType;
     public String partition;
+    public int timeoutMillis;
     public List<HeaderEntryState> headers = List.of();
 }

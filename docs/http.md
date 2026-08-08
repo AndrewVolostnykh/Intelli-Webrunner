@@ -105,7 +105,7 @@ editor suggests common HTTP names and configured header presets.
 
 ## Body types
 
-The payload selector supports `Raw`, `Form Data`, and `Binary`.
+The payload selector supports `Raw`, `Form Data`, `x-www-form-urlencoded`, and `Binary`.
 
 ### Raw
 
@@ -161,6 +161,26 @@ Content-Type: multipart/form-data; boundary=...
 ```
 
 Names, values, and file paths support placeholders.
+
+### x-www-form-urlencoded
+
+`x-www-form-urlencoded` sends enabled form rows as an `application/x-www-form-urlencoded` body.
+Use it for OAuth token calls, login forms, and APIs that expect HTML form encoding.
+
+| Enabled | Name | Type | Value |
+|---|---|---|---|
+| Yes | grant_type | Text | password |
+| Yes | username | Text | `{{username}}` |
+| Yes | scope | Text | read write |
+
+If Content-Type is absent, Webrunner adds:
+
+```text
+Content-Type: application/x-www-form-urlencoded
+```
+
+Names and values are URL-encoded before sending. Disabled, unnamed, and file rows are not treated as
+files for this payload type; use `Form Data` when you need multipart file uploads.
 
 ### Binary
 

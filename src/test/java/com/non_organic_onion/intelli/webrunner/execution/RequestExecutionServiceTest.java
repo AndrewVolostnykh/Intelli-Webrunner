@@ -3,6 +3,8 @@ package com.non_organic_onion.intelli.webrunner.execution;
 import com.non_organic_onion.intelli.webrunner.grpc.GrpcExecutionResponse;
 import com.non_organic_onion.intelli.webrunner.grpc.GrpcExecutor;
 import com.non_organic_onion.intelli.webrunner.kafka.KafkaMessageProducer;
+import com.non_organic_onion.intelli.webrunner.kafka.KafkaSendRequest;
+import com.non_organic_onion.intelli.webrunner.kafka.KafkaSendResult;
 import com.non_organic_onion.intelli.webrunner.script.ScriptRuntime;
 import com.non_organic_onion.intelli.webrunner.script.VarsStore;
 import com.non_organic_onion.intelli.webrunner.state.FormEntryState;
@@ -21,6 +23,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -241,6 +244,30 @@ class RequestExecutionServiceTest {
 	}
 
 	@Test
+	void executeWithScriptsPassesTimeoutToHttpExecutor() {
+		CapturingHttpExecutor httpExecutor = new CapturingHttpExecutor();
+		RequestExecutionService service = httpService(httpExecutor, new GlobalWebrunnerStateService());
+
+		service.executeWithScripts(
+			"GET",
+			"https://api.test",
+			List.of(),
+			List.of(),
+			"",
+			"",
+			"",
+			false,
+			null,
+			"RAW",
+			List.of(),
+			"",
+			125
+		);
+
+		assertEquals(125, httpExecutor.timeoutMillis);
+	}
+
+	@Test
 	void executeWithScriptsDoesNotSendRequestWhenBeforeScriptFails() {
 		CapturingHttpExecutor httpExecutor = new CapturingHttpExecutor();
 		RequestExecutionService service = httpService(httpExecutor, new GlobalWebrunnerStateService());
@@ -436,6 +463,76 @@ class RequestExecutionServiceTest {
 		assertEquals("Echo", grpcExecutor.method);
 	}
 
+	@Test
+	void executeGrpcWithScriptsPassesTimeoutToGrpcExecutor() {
+		CapturingGrpcExecutor grpcExecutor = new CapturingGrpcExecutor();
+		RequestExecutionService service = new RequestExecutionService(
+			new TemplateEngine(),
+			new ScriptRuntime(),
+			new HttpExecutor(),
+			grpcExecutor,
+			new KafkaMessageProducer(),
+			new GlobalWebrunnerStateService()
+		);
+		RequestDetailsState details = new RequestDetailsState();
+		details.type = RequestType.GRPC;
+		details.target = "localhost:9090";
+		details.service = "demo.EchoService";
+		details.grpcMethod = "Echo";
+
+		service.executeGrpcWithScripts(details, List.of(), List.of(), "{}", "", "", null, 175);
+
+		assertEquals(175, grpcExecutor.timeoutMillis);
+	}
+
+	@Test
+	void executeKafkaWithScriptsPassesTimeoutToProducer() {
+		CapturingKafkaMessageProducer kafkaProducer = new CapturingKafkaMessageProducer();
+		RequestExecutionService service = new RequestExecutionService(
+			new TemplateEngine(),
+			new ScriptRuntime(),
+			new HttpExecutor(),
+			new CapturingGrpcExecutor(),
+			kafkaProducer,
+			new GlobalWebrunnerStateService()
+		);
+		RequestDetailsState details = new RequestDetailsState();
+		details.type = RequestType.KAFKA;
+		details.kafkaBootstrapServers = "localhost:9092";
+		details.kafkaTopic = "events";
+
+		service.executeKafkaWithScripts(
+			details,
+			List.of(),
+			"{\"ok\":true}",
+			"",
+			"",
+			"String",
+			"JSON",
+			"",
+			null,
+			225
+		);
+
+		assertEquals(225, kafkaProducer.request.timeoutMillis);
+	}
+
+	@Test
+	void createRequestAppliesDefaultTimeoutExceptKafkaListen() {
+		GlobalWebrunnerStateService stateService = new GlobalWebrunnerStateService();
+		stateService.saveDefaultTimeoutMillis(345);
+
+		var http = stateService.createRequest("HTTP", RequestType.HTTP, null);
+		var grpc = stateService.createRequest("gRPC", RequestType.GRPC, null);
+		var kafka = stateService.createRequest("Kafka", RequestType.KAFKA, null);
+		var listen = stateService.createRequest("Listen", RequestType.KAFKA_LISTEN, null);
+
+		assertEquals(345, stateService.getRequestDetails(http.id).timeoutMillis);
+		assertEquals(345, stateService.getRequestDetails(grpc.id).timeoutMillis);
+		assertEquals(345, stateService.getRequestDetails(kafka.id).timeoutMillis);
+		assertEquals(0, stateService.getRequestDetails(listen.id).timeoutMillis);
+	}
+
 	private RequestExecutionService httpService(CapturingHttpExecutor httpExecutor, GlobalWebrunnerStateService stateService) {
 		return new RequestExecutionService(
 			new TemplateEngine(),
@@ -506,6 +603,8 @@ class RequestExecutionServiceTest {
 		private List<FormEntryState> formData = List.of();
 		private String binaryFilePath;
 		private HttpPayloadType payloadType;
+		private int timeoutMillis;
+		private int binaryTimeoutMillis;
 		private Exception failure;
 		private HttpExecutionResponse response = new HttpExecutionResponse(
 			200,
@@ -521,9 +620,11 @@ class RequestExecutionServiceTest {
 			String body,
 			List<FormEntryState> formData,
 			String binaryFilePath,
-			HttpPayloadType payloadType
+			HttpPayloadType payloadType,
+			int timeoutMillis
 		) throws IOException, InterruptedException {
 			executeCalls++;
+			this.timeoutMillis = timeoutMillis;
 			capture(method, url, headers, body, formData, binaryFilePath, payloadType);
 			if (failure instanceof IOException ioException) {
 				throw ioException;
@@ -542,9 +643,11 @@ class RequestExecutionServiceTest {
 			String body,
 			List<FormEntryState> formData,
 			String binaryFilePath,
-			HttpPayloadType payloadType
+			HttpPayloadType payloadType,
+			int timeoutMillis
 		) throws IOException, InterruptedException {
 			executeBinaryCalls++;
+			binaryTimeoutMillis = timeoutMillis;
 			capture(method, url, headers, body, formData, binaryFilePath, payloadType);
 			if (failure instanceof IOException ioException) {
 				throw ioException;
@@ -578,6 +681,7 @@ class RequestExecutionServiceTest {
 		private String target;
 		private String service;
 		private String method;
+		private int timeoutMillis;
 
 		@Override
 		public GrpcExecutionResponse execute(
@@ -585,12 +689,37 @@ class RequestExecutionServiceTest {
 			String service,
 			String method,
 			String payload,
-			List<HeaderEntryState> metadata
+			List<HeaderEntryState> metadata,
+			int timeoutMillis
+		) {
+			return execute(target, service, method, payload, metadata, timeoutMillis, null);
+		}
+
+		@Override
+		public GrpcExecutionResponse execute(
+			String target,
+			String service,
+			String method,
+			String payload,
+			List<HeaderEntryState> metadata,
+			int timeoutMillis,
+			Consumer<GrpcExecutionResponse> serverMessageConsumer
 		) {
 			this.target = target;
 			this.service = service;
 			this.method = method;
+			this.timeoutMillis = timeoutMillis;
 			return new GrpcExecutionResponse(0, "OK", Map.of(), "{}");
+		}
+	}
+
+	private static final class CapturingKafkaMessageProducer extends KafkaMessageProducer {
+		private KafkaSendRequest request;
+
+		@Override
+		public KafkaSendResult send(KafkaSendRequest request) {
+			this.request = request;
+			return new KafkaSendResult(request.topic, 0, 1, 2, 0, 0, 0);
 		}
 	}
 }

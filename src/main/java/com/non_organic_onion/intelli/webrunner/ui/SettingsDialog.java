@@ -6,10 +6,13 @@ import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JSpinner;
 import javax.swing.JTable;
 import javax.swing.JTabbedPane;
+import javax.swing.SpinnerNumberModel;
 import javax.swing.table.TableCellEditor;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import com.intellij.ui.components.JBTextField;
@@ -37,6 +40,7 @@ public final class SettingsDialog {
 		Component parent,
 		List<HeaderPresetState> presets,
 		boolean stressTestsEnabled,
+		int defaultTimeoutMillis,
 		String collectionsFilePath,
 		String settingsFilePath,
 		Consumer<SettingsResult> onSaved
@@ -44,6 +48,8 @@ public final class SettingsDialog {
 		JDialog dialog = new JDialog();
 		dialog.setTitle("Settings");
 		JTabbedPane tabs = new JTabbedPane();
+		JSpinner defaultTimeoutSpinner = createTimeoutSpinner(defaultTimeoutMillis);
+		tabs.add("Config", buildConfigPanel(defaultTimeoutSpinner));
 
 		HeaderPresetTableModel model = new HeaderPresetTableModel();
 		JPanel headersPanel = new JPanel(new BorderLayout());
@@ -90,6 +96,7 @@ public final class SettingsDialog {
 			onSaved.accept(new SettingsResult(
 				model.getPresets(),
 				stressTestsCheckbox.isSelected(),
+				timeoutValue(defaultTimeoutSpinner),
 				collectionsPathField.getText()
 			));
 			dialog.dispose();
@@ -103,6 +110,57 @@ public final class SettingsDialog {
 		dialog.setLocationRelativeTo(parent);
 		dialog.setModal(false);
 		dialog.setVisible(true);
+	}
+
+	private static JPanel buildConfigPanel(JSpinner defaultTimeoutSpinner) {
+		JPanel panel = new JPanel(new GridBagLayout());
+		GridBagConstraints constraints = new GridBagConstraints();
+		constraints.insets = new Insets(8, 8, 0, 8);
+		constraints.anchor = GridBagConstraints.WEST;
+		constraints.gridy = 0;
+		constraints.gridx = 0;
+		constraints.weightx = 0;
+		constraints.fill = GridBagConstraints.NONE;
+		panel.add(new JLabel("Default Timeout"), constraints);
+
+		constraints.gridx = 1;
+		constraints.weightx = 0;
+		panel.add(defaultTimeoutSpinner, constraints);
+
+		constraints.gridx = 2;
+		panel.add(new JLabel("ms"), constraints);
+
+		constraints.gridy = 1;
+		constraints.gridx = 0;
+		constraints.gridwidth = 3;
+		constraints.weighty = 1;
+		constraints.fill = GridBagConstraints.BOTH;
+		panel.add(new JPanel(), constraints);
+		return panel;
+	}
+
+	private static JSpinner createTimeoutSpinner(int timeoutMillis) {
+		JSpinner spinner = new JSpinner(new SpinnerNumberModel(normalizeTimeout(timeoutMillis), 0, 3_600_000, 5));
+		spinner.setEditor(new JSpinner.NumberEditor(spinner, "#"));
+		JComponent editor = spinner.getEditor();
+		if (editor instanceof JSpinner.DefaultEditor defaultEditor) {
+			defaultEditor.getTextField().setColumns(8);
+		}
+		return spinner;
+	}
+
+	private static int timeoutValue(JSpinner spinner) {
+		try {
+			spinner.commitEdit();
+		} catch (Exception ignored) {
+			// Keep the last valid spinner value if the user typed invalid text.
+		}
+		Object value = spinner.getValue();
+		return value instanceof Number number ? normalizeTimeout(number.intValue()) : 0;
+	}
+
+	private static int normalizeTimeout(int timeoutMillis) {
+		return Math.max(0, timeoutMillis);
 	}
 
 	private static JPanel buildStoragePanel(
@@ -181,6 +239,7 @@ public final class SettingsDialog {
 	public record SettingsResult(
 		List<HeaderPresetState> headerPresets,
 		boolean stressTestsEnabled,
+		int defaultTimeoutMillis,
 		String collectionsFilePath
 	) {
 	}

@@ -81,10 +81,12 @@ public final class DebugCallSession {
 	private JBTextField inlineScriptField;
 	private JButton inlineRunButton;
 	private JButton nextButton;
-	private JButton abandonButton;
+	private JButton rerunButton;
+	private JButton stopButton;
 
 	private int stepIndex = 1;
 	private volatile boolean abandoned = false;
+	private volatile int runGeneration = 0;
 	private Future<?> pendingTask;
 
 	private VarsStore vars;
@@ -101,6 +103,7 @@ public final class DebugCallSession {
 	private String templatedBody = "";
 	private List<HeaderEntryState> templatedHeaders = List.of();
 	private List<HeaderEntryState> templatedParams = List.of();
+	private String templatedUrlBase = "";
 	private String templatedUrl = "";
 	private String templatedGrpcTarget = "";
 	private String templatedGrpcService = "";
@@ -173,20 +176,27 @@ public final class DebugCallSession {
 
 		inlineRunButton = new JButton(AllIcons.Actions.Execute);
 		inlineRunButton.setToolTipText("Run Script");
-		inlineRunButton.setMargin(new Insets(0, 0, 0, 0));
-		inlineRunButton.setPreferredSize(new Dimension(28, 28));
+		configureDialogIconButton(inlineRunButton, "Run Script");
+		inlineRunButton.setEnabled(false);
 		inlineRunButton.addActionListener(e -> runInlineScript());
 
-		nextButton = new JButton("Next");
-		abandonButton = new JButton("Abandon");
+		nextButton = new JButton(AllIcons.Actions.TraceOver);
+		configureDialogIconButton(nextButton, "Next");
+		rerunButton = new JButton(AllIcons.Actions.Refresh);
+		configureDialogIconButton(rerunButton, "Re-run");
+		stopButton = new JButton("\u25A0");
+		configureDialogIconButton(stopButton, "Stop");
+		stopButton.setForeground(JBColor.RED);
 		nextButton.addActionListener(e -> advance());
-		abandonButton.addActionListener(e -> abandon(true));
+		rerunButton.addActionListener(e -> rerun());
+		stopButton.addActionListener(e -> abandon(true));
 
 		JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT));
 		actions.add(inlineScriptField);
 		actions.add(inlineRunButton);
+		actions.add(rerunButton);
 		actions.add(nextButton);
-		actions.add(abandonButton);
+		actions.add(stopButton);
 
 		dialog.getContentPane().setLayout(new BorderLayout());
 		dialog.getContentPane().add(outputConsole.getComponent(), BorderLayout.CENTER);
@@ -207,8 +217,8 @@ public final class DebugCallSession {
 		});
 
 		clearOutput();
-		appendStage(buildInitialStage());
 		dialog.setVisible(true);
+		advance();
 	}
 
 	private void advance() {
@@ -216,18 +226,21 @@ public final class DebugCallSession {
 			return;
 		}
 		nextButton.setEnabled(false);
+		inlineRunButton.setEnabled(false);
+		int generation = runGeneration;
 		pendingTask = ApplicationManager.getApplication().executeOnPooledThread(() -> {
 			DebugStageResult result = runStage(stepIndex);
-			if (result == null || abandoned) {
+			if (result == null || abandoned || generation != runGeneration) {
 				return;
 			}
 			invokeLater(() -> {
-				if (abandoned) {
+				if (abandoned || generation != runGeneration) {
 					return;
 				}
 				appendStage(result);
 				stepIndex++;
 				nextButton.setEnabled(result.hasNext);
+				updateInlineRunButton();
 			});
 		});
 	}
@@ -247,6 +260,7 @@ public final class DebugCallSession {
 			return;
 		}
 		abandoned = true;
+		runGeneration++;
 		if (pendingTask != null) {
 			pendingTask.cancel(true);
 		}
@@ -260,6 +274,22 @@ public final class DebugCallSession {
 		});
 	}
 
+	private void rerun() {
+		if (abandoned) {
+			return;
+		}
+		runGeneration++;
+		if (pendingTask != null) {
+			pendingTask.cancel(true);
+			pendingTask = null;
+		}
+		resetExecutionState();
+		clearOutput();
+		nextButton.setEnabled(false);
+		inlineRunButton.setEnabled(false);
+		advance();
+	}
+
 	private void runInlineScript() {
 		if (abandoned) {
 			return;
@@ -269,19 +299,48 @@ public final class DebugCallSession {
 			return;
 		}
 		inlineRunButton.setEnabled(false);
+		int generation = runGeneration;
 		pendingTask = ApplicationManager.getApplication().executeOnPooledThread(() -> {
 			DebugStageResult result = executeInlineScript(script);
-			if (result == null || abandoned) {
+			if (result == null || abandoned || generation != runGeneration) {
 				return;
 			}
 			invokeLater(() -> {
-				if (abandoned) {
+				if (abandoned || generation != runGeneration) {
 					return;
 				}
 				appendStage(result);
-				inlineRunButton.setEnabled(true);
+				updateInlineRunButton();
 			});
 		});
+	}
+
+	private void resetExecutionState() {
+		stepIndex = 1;
+		vars = null;
+		globalContext = null;
+		helpers = null;
+		logger = null;
+		logs = null;
+		beforeLogs = List.of();
+		afterLogs = List.of();
+		rawRequest = null;
+		beforeRequest = null;
+		afterRequest = null;
+		currentRequest = null;
+		templatedBody = "";
+		templatedHeaders = List.of();
+		templatedParams = List.of();
+		templatedUrlBase = "";
+		templatedUrl = "";
+		templatedGrpcTarget = "";
+		templatedGrpcService = "";
+		templatedGrpcMethod = "";
+		httpResponse = null;
+		grpcResponse = null;
+		beforeFailed = false;
+		requestFailed = false;
+		validationError = null;
 	}
 
 	private DebugStageResult executeInlineScript(String script) {
@@ -410,9 +469,9 @@ public final class DebugCallSession {
 			);
 			if (requestType == RequestType.HTTP) {
 				String url = details == null || details.url == null ? "" : details.url;
-				String templatedUrlBase = templateEngine.applyToText(url, varsSnapshot);
+				templatedUrlBase = templateEngine.applyToText(url, varsSnapshot);
 				templatedUrl = UrlParamUtils.applyDefaultProtocol(
-					UrlParamUtils.applyQueryParams(templatedUrlBase, templatedParams)
+					UrlParamUtils.replaceQueryParams(templatedUrlBase, templatedParams)
 				);
 			} else if (requestType == RequestType.GRPC) {
 				templatedGrpcTarget = templateEngine.applyToText(details == null ? "" : details.target, varsSnapshot);
@@ -426,7 +485,8 @@ public final class DebugCallSession {
 			templatedBody = beforeRequest.getBody();
 			templatedHeaders = beforeRequest.getHeaders();
 			templatedParams = beforeRequest.getParams();
-			templatedUrl = details == null || details.url == null ? "" : details.url;
+			templatedUrlBase = details == null || details.url == null ? "" : details.url;
+			templatedUrl = templatedUrlBase;
 			templatedGrpcTarget = details == null || details.target == null ? "" : details.target;
 			templatedGrpcService = details == null || details.service == null ? "" : details.service;
 			templatedGrpcMethod = details == null || details.grpcMethod == null ? "" : details.grpcMethod;
@@ -472,10 +532,19 @@ public final class DebugCallSession {
 			if (requestType == RequestType.HTTP) {
 				String method = details == null || details.method == null ? "GET" : details.method;
 				String payloadType = details == null ? "RAW" : details.payloadType;
+				ScriptRequest requestToSend = currentRequest == null
+					? new ScriptRequest(templatedBody, templatedHeaders, templatedParams)
+					: currentRequest;
+				templatedBody = requestToSend.getBody();
+				templatedHeaders = requestToSend.getHeaders() == null ? List.of() : requestToSend.getHeaders();
+				templatedParams = requestToSend.getParams() == null ? List.of() : requestToSend.getParams();
+				templatedUrl = UrlParamUtils.applyDefaultProtocol(
+					UrlParamUtils.replaceQueryParams(templatedUrlBase, templatedParams)
+				);
 				List<FormEntryState> formData =
-					currentRequest == null ? List.of() : currentRequest.getFormData();
+					requestToSend.getFormData() == null ? List.of() : requestToSend.getFormData();
 				String binaryPath =
-					currentRequest == null ? "" : currentRequest.getBinaryFilePath();
+					requestToSend.getBinaryFilePath() == null ? "" : requestToSend.getBinaryFilePath();
 				httpResponse = httpExecutor.execute(
 					method,
 					templatedUrl,
@@ -483,15 +552,22 @@ public final class DebugCallSession {
 					templatedBody,
 					formData,
 					binaryPath,
-					PayloadTypes.resolveType(payloadType)
+					PayloadTypes.resolveType(payloadType),
+					requestTimeout()
 				);
 			} else {
+				if (currentRequest != null) {
+					templatedBody = currentRequest.getBody();
+					templatedHeaders = currentRequest.getHeaders() == null ? List.of() : currentRequest.getHeaders();
+					templatedParams = currentRequest.getParams() == null ? List.of() : currentRequest.getParams();
+				}
 				grpcResponse = grpcExecutor.execute(
 					templatedGrpcTarget,
 					templatedGrpcService,
 					templatedGrpcMethod,
 					templatedBody,
-					templatedHeaders
+					templatedHeaders,
+					requestTimeout()
 				);
 			}
 		} catch (InterruptedException error) {
@@ -634,6 +710,20 @@ public final class DebugCallSession {
 		outputHasContent = false;
 	}
 
+	private void configureDialogIconButton(JButton button, String tooltip) {
+		button.setToolTipText(tooltip);
+		button.setMargin(new Insets(0, 0, 0, 0));
+		button.setPreferredSize(new Dimension(28, 28));
+		button.setFocusable(false);
+		button.setRequestFocusEnabled(false);
+	}
+
+	private void updateInlineRunButton() {
+		if (inlineRunButton != null) {
+			inlineRunButton.setEnabled(!abandoned && vars != null && logger != null && helpers != null);
+		}
+	}
+
 	private void printStep(String text) {
 		outputConsole.print(text, STEP_OUTPUT);
 	}
@@ -655,6 +745,10 @@ public final class DebugCallSession {
 		long seconds = ms / 1000;
 		long remain = ms % 1000;
 		return seconds + "s:" + String.format("%03dms", remain);
+	}
+
+	private int requestTimeout() {
+		return details == null ? stateService.getDefaultTimeoutMillis() : Math.max(0, details.timeoutMillis);
 	}
 
 	private List<String> formatRequestSnapshot(ScriptRequest request) {

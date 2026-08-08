@@ -490,6 +490,9 @@ public class ScriptRuntime {
     }
 
     private Object normalizeAssertValue(Object value) {
+        if (value instanceof Undefined) {
+            return null;
+        }
         if (value instanceof NativeObject object) {
             return normalizeAssertMap(object);
         }

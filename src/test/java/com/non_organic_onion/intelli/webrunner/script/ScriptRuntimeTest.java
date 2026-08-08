@@ -292,6 +292,18 @@ class ScriptRuntimeTest {
 	}
 
 	@Test
+	void assertFormatsUndefinedAsNull() {
+		List<String> logs = new ArrayList<>();
+
+		runtime.runScript(
+			"assert(jsonify('{\"id\":\"1\"}').entityId, 'asd', 'Expected value blab');",
+			context(new VarsStore(), request(""), request(""), null, logs)
+		);
+
+		assertEquals("Assertion failed: Expected value blab expected asd", logs.get(0));
+	}
+
+	@Test
 	void predefinedRandomAndDateFunctionsAreAvailable() {
 		List<String> logs = new ArrayList<>();
 
