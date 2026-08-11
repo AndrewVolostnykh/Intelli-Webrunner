@@ -29,7 +29,8 @@ API requests inside the IDE. Use this documentation as the user guide for day-to
 3. [Chain Mode](chain.md) - run multiple HTTP/gRPC requests in sequence.
 4. [Import and Export](import-export.md) - Webrunner JSON, cURL, `.http`, and OpenAPI behavior and limitations.
 5. [gRPC Requests](grpc.md) - service discovery, metadata, payloads, execution, and scripting.
-6. [FAQ](faq.md) - common problems and troubleshooting.
+6. [Dev Tools](dev-tools.md) - JWT, Base64, URL, JSON, Text, Hash, Compare, UUID, and DateTime utilities.
+7. [FAQ](faq.md) - common problems and troubleshooting.
 
 ## What gets saved
 

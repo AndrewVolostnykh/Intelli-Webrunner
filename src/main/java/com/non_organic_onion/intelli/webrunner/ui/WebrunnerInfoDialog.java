@@ -8,6 +8,7 @@ import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JEditorPane;
 import javax.swing.JSplitPane;
+import javax.swing.SwingUtilities;
 import javax.swing.JTree;
 import javax.swing.event.HyperlinkEvent;
 import javax.swing.event.TreeSelectionEvent;
@@ -21,6 +22,7 @@ import java.io.InputStreamReader;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -42,6 +44,7 @@ public final class WebrunnerInfoDialog {
 		new DocFile("debug-call.md", "Debug Call"),
 		new DocFile("chain.md", "Chain Mode"),
 		new DocFile("import-export.md", "Import and Export"),
+		new DocFile("dev-tools.md", "Dev Tools"),
 		new DocFile("faq.md", "FAQ")
 	);
 
@@ -91,6 +94,12 @@ public final class WebrunnerInfoDialog {
 			if (value instanceof DocPage doc) {
 				details.setText(page(doc.html()));
 				details.setCaretPosition(0);
+			} else if (value instanceof DocSection section) {
+				DocPage doc = pages.get(section.docName());
+				if (doc != null) {
+					details.setText(page(doc.html()));
+					SwingUtilities.invokeLater(() -> details.scrollToReference(section.anchor()));
+				}
 			}
 		});
 		selectDoc(tree, "index.md");
@@ -110,7 +119,12 @@ public final class WebrunnerInfoDialog {
 		for (DocFile file : DOC_FILES) {
 			String markdown = readResource(DOC_RESOURCE_DIR + file.name());
 			String title = firstHeading(markdown, file.title());
-			pages.put(file.name(), new DocPage(file.name(), title, MarkdownRenderer.render(markdown)));
+			pages.put(file.name(), new DocPage(
+				file.name(),
+				title,
+				MarkdownRenderer.render(markdown),
+				extractSections(file.name(), markdown)
+			));
 		}
 		return pages;
 	}
@@ -120,10 +134,32 @@ public final class WebrunnerInfoDialog {
 		for (DocFile file : DOC_FILES) {
 			DocPage page = pages.get(file.name());
 			if (page != null) {
-				root.add(new DefaultMutableTreeNode(page));
+				DefaultMutableTreeNode pageNode = new DefaultMutableTreeNode(page);
+				if ("scripting.md".equals(file.name()) || "dev-tools.md".equals(file.name())) {
+					for (DocSection section : page.sections()) {
+						pageNode.add(new DefaultMutableTreeNode(section));
+					}
+				}
+				root.add(pageNode);
 			}
 		}
 		return root;
+	}
+
+	private static List<DocSection> extractSections(String docName, String markdown) {
+		List<DocSection> sections = new ArrayList<>();
+		if (markdown == null) {
+			return sections;
+		}
+		for (String line : markdown.split("\\R")) {
+			String trimmed = line.trim();
+			int level = MarkdownRenderer.headingLevel(trimmed);
+			if (level == 2) {
+				String title = trimmed.substring(level).trim();
+				sections.add(new DocSection(docName, title, MarkdownRenderer.anchor(title)));
+			}
+		}
+		return sections;
 	}
 
 	private static void selectDoc(JTree tree, String docName) {
@@ -259,7 +295,14 @@ public final class WebrunnerInfoDialog {
 	private record DocFile(String name, String title) {
 	}
 
-	private record DocPage(String name, String title, String html) {
+	private record DocPage(String name, String title, String html, List<DocSection> sections) {
+		@Override
+		public String toString() {
+			return title;
+		}
+	}
+
+	private record DocSection(String docName, String title, String anchor) {
 		@Override
 		public String toString() {
 			return title;
@@ -336,8 +379,11 @@ public final class WebrunnerInfoDialog {
 					int level = headingLevel(trimmed);
 					if (level > 0) {
 						String text = trimmed.substring(level).trim();
+						String anchor = anchor(text);
 						level = Math.min(level, 3);
-						html.append("<h").append(level).append(">")
+						html.append("<h").append(level).append("><a name=\"")
+							.append(escapeAttribute(anchor))
+							.append("\"></a>")
 							.append(inline(text))
 							.append("</h").append(level).append(">\n");
 						continue;
@@ -421,6 +467,25 @@ public final class WebrunnerInfoDialog {
 				level++;
 			}
 			return level > 0 && level < text.length() && Character.isWhitespace(text.charAt(level)) ? level : 0;
+		}
+
+		private static String anchor(String text) {
+			StringBuilder anchor = new StringBuilder();
+			boolean dash = false;
+			for (int index = 0; index < text.length(); index++) {
+				char ch = Character.toLowerCase(text.charAt(index));
+				if (Character.isLetterOrDigit(ch)) {
+					anchor.append(ch);
+					dash = false;
+				} else if (!dash && anchor.length() > 0) {
+					anchor.append('-');
+					dash = true;
+				}
+			}
+			while (anchor.length() > 0 && anchor.charAt(anchor.length() - 1) == '-') {
+				anchor.setLength(anchor.length() - 1);
+			}
+			return anchor.length() == 0 ? "section" : anchor.toString();
 		}
 
 		private static int orderedListOffset(String text) {
