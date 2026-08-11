@@ -436,7 +436,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		base64Item.addActionListener(e -> Base64ToolDialog.show(root, project));
 		urlItem.addActionListener(e -> UrlToolDialog.show(root, project));
 		jsonItem.addActionListener(e -> JsonToolDialog.show(root, project));
-		textItem.addActionListener(e -> TextToolDialog.show(root));
+		textItem.addActionListener(e -> TextToolDialog.show(root, project));
 		hashItem.addActionListener(e -> HashToolDialog.show(root));
 		compareItem.addActionListener(e -> CompareToolDialog.show(root, project));
 		uuidItem.addActionListener(e -> UuidGeneratorDialog.show(root));

@@ -2,6 +2,10 @@ package com.non_organic_onion.intelli.webrunner.ui;
 
 import com.non_organic_onion.intelli.webrunner.util.JsonTextOperations;
 import com.non_organic_onion.intelli.webrunner.util.TextFormatting;
+import com.intellij.openapi.fileTypes.PlainTextFileType;
+import com.intellij.openapi.project.Project;
+import com.intellij.ui.EditorTextField;
+import com.intellij.ui.components.JBScrollPane;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -9,20 +13,19 @@ import javax.swing.JComponent;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
-import javax.swing.JScrollPane;
-import javax.swing.JTextArea;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
-import java.awt.Font;
 
 public final class TextToolPanel {
 	private final JPanel root = new JPanel(new BorderLayout(8, 8));
-	private final JTextArea textField = new JTextArea();
+	private final EditorTextField textField;
 	private final JButton minifyButton = new JButton("Minify");
 	private final JButton beautifyButton = new JButton("Beautify");
 	private final JButton moreButton = new JButton("\u22EE");
 
-	public TextToolPanel() {
+	public TextToolPanel(Project project) {
+		this.textField = new EditorTextField("", project, PlainTextFileType.INSTANCE);
+		this.textField.setOneLineMode(false);
 		buildUi();
 		attachActions();
 	}
@@ -33,16 +36,16 @@ public final class TextToolPanel {
 
 	private void buildUi() {
 		root.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
-		textField.setLineWrap(true);
-		textField.setWrapStyleWord(false);
-		textField.setFont(new Font(Font.MONOSPACED, Font.PLAIN, textField.getFont().getSize()));
-		root.add(new JScrollPane(textField), BorderLayout.CENTER);
+		root.add(new JBScrollPane(textField), BorderLayout.CENTER);
 
 		JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
 		actions.add(minifyButton);
 		actions.add(beautifyButton);
 		actions.add(moreButton);
-		root.add(actions, BorderLayout.SOUTH);
+		JPanel bottom = new JPanel(new BorderLayout(0, 8));
+		bottom.add(EditorLocalFindSupport.create(textField, root), BorderLayout.NORTH);
+		bottom.add(actions, BorderLayout.SOUTH);
+		root.add(bottom, BorderLayout.SOUTH);
 	}
 
 	private void attachActions() {
