@@ -3,10 +3,8 @@ package com.non_organic_onion.intelli.webrunner.ui;
 import com.non_organic_onion.intelli.webrunner.proto.ProtoBodyGenerator;
 import com.non_organic_onion.intelli.webrunner.proto.ProtoMessageSelection;
 import com.non_organic_onion.intelli.webrunner.util.JsonUtils;
-import com.intellij.openapi.fileChooser.FileChooser;
-import com.intellij.openapi.fileChooser.FileChooserDescriptor;
-import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.EditorTextField;
 import com.intellij.ui.ListSpeedSearch;
@@ -16,15 +14,18 @@ import com.intellij.ui.components.JBScrollPane;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
 import javax.swing.JCheckBox;
+import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.ListSelectionModel;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.GridLayout;
+import java.io.File;
 import java.util.List;
 import java.util.Map;
 
@@ -52,7 +53,12 @@ public final class BodyGeneratorActions {
 		JCheckBox useNulls = new JCheckBox("Use null values", false);
 		JPanel options = new JPanel(new GridLayout(0, 1));
 		options.add(useNulls);
-		int confirm = JOptionPane.showConfirmDialog(parent, options, "Proto body options", JOptionPane.OK_CANCEL_OPTION);
+		int confirm = TaskbarWindowSupport.showConfirmDialog(
+			parent,
+			options,
+			"Proto body options",
+			JOptionPane.OK_CANCEL_OPTION
+		);
 		if (confirm != JOptionPane.OK_OPTION) {
 			return;
 		}
@@ -73,7 +79,7 @@ public final class BodyGeneratorActions {
 		}
 		List<ProtoMessageSelection> fileMessages = new ProtoBodyGenerator(project).loadMessages(file);
 		if (fileMessages.isEmpty()) {
-			JOptionPane.showMessageDialog(
+			TaskbarWindowSupport.showMessageDialog(
 				parent,
 				"No messages found in selected .proto file.",
 				"Proto body",
@@ -107,7 +113,7 @@ public final class BodyGeneratorActions {
 		JScrollPane scrollPane = new JBScrollPane(list);
 		scrollPane.setPreferredSize(new Dimension(520, 360));
 		int confirm =
-			JOptionPane.showConfirmDialog(parent, scrollPane, "Select Proto Message", JOptionPane.OK_CANCEL_OPTION);
+			TaskbarWindowSupport.showConfirmDialog(parent, scrollPane, "Select Proto Message", JOptionPane.OK_CANCEL_OPTION);
 		if (confirm != JOptionPane.OK_OPTION) {
 			return null;
 		}
@@ -115,8 +121,14 @@ public final class BodyGeneratorActions {
 	}
 
 	private VirtualFile chooseProtoFile() {
-		FileChooserDescriptor descriptor = FileChooserDescriptorFactory.createSingleFileDescriptor("proto");
-		descriptor.setTitle("Select Proto File");
-		return FileChooser.chooseFile(descriptor, project, null);
+		JFileChooser chooser = new JFileChooser();
+		chooser.setDialogTitle("Select Proto File");
+		chooser.setFileFilter(new FileNameExtensionFilter("Proto files", "proto"));
+		int result = TaskbarWindowSupport.showOpenDialog(chooser, parent);
+		if (result != JFileChooser.APPROVE_OPTION) {
+			return null;
+		}
+		File file = chooser.getSelectedFile();
+		return file == null ? null : LocalFileSystem.getInstance().refreshAndFindFileByIoFile(file);
 	}
 }

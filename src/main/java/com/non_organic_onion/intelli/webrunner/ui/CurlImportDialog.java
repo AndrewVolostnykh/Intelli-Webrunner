@@ -27,12 +27,11 @@ public final class CurlImportDialog {
 		JPanel content = new JPanel(new BorderLayout(0, 8));
 		content.add(namePanel, BorderLayout.NORTH);
 		content.add(scrollPane, BorderLayout.CENTER);
-		int result = JOptionPane.showConfirmDialog(
+		int result = TaskbarWindowSupport.showConfirmDialog(
 			parent,
 			content,
 			"Use cURL",
-			JOptionPane.OK_CANCEL_OPTION,
-			JOptionPane.PLAIN_MESSAGE
+			JOptionPane.OK_CANCEL_OPTION
 		);
 		if (result != JOptionPane.OK_OPTION) {
 			return null;

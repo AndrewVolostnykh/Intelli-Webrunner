@@ -6,6 +6,7 @@ public class ChainStepState {
     public boolean runBasicBeforeRequest;
     public boolean runBasicAfterRequest;
     public boolean runBasicStress;
+    public boolean runBasicTests;
     public String runIfScript = "";
     public String beforeRequestScript = "";
     public String afterRequestScript = "";

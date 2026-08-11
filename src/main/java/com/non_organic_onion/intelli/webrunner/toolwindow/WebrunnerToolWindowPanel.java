@@ -34,6 +34,7 @@ import com.non_organic_onion.intelli.webrunner.ui.RequestTreePanel;
 import com.non_organic_onion.intelli.webrunner.ui.ResponseViewerPanel;
 import com.non_organic_onion.intelli.webrunner.ui.SettingsDialog;
 import com.non_organic_onion.intelli.webrunner.ui.SplitPaneStyling;
+import com.non_organic_onion.intelli.webrunner.ui.TaskbarWindowSupport;
 import com.non_organic_onion.intelli.webrunner.ui.TextToolDialog;
 import com.non_organic_onion.intelli.webrunner.ui.UrlToolDialog;
 import com.non_organic_onion.intelli.webrunner.ui.UuidGeneratorDialog;
@@ -384,7 +385,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 			stateService.saveRequestStatus(status);
 			reloadTree(node.id);
 		} catch (IllegalArgumentException error) {
-			JOptionPane.showMessageDialog(
+			TaskbarWindowSupport.showMessageDialog(
 				root,
 				error.getMessage(),
 				"Invalid cURL",
@@ -400,7 +401,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		saveCurrentEditors();
 		RequestDetailsState details = stateService.getRequestDetails(currentNode.id);
 		if (details == null || details.url == null || details.url.isBlank()) {
-			JOptionPane.showMessageDialog(root, "Missing request URL.", "Get cURL", JOptionPane.ERROR_MESSAGE);
+			TaskbarWindowSupport.showMessageDialog(root, "Missing request URL.", "Get cURL", JOptionPane.ERROR_MESSAGE);
 			return;
 		}
 		RequestStatusState status = stateService.getRequestStatus(currentNode.id);
@@ -456,7 +457,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		if (currentNode == null) {
 			return;
 		}
-		String name = JOptionPane.showInputDialog(root, "New name:", currentNode.name);
+		String name = TaskbarWindowSupport.showInputDialog(root, "New name:", "Rename", currentNode.name);
 		if (name == null || name.isBlank()) {
 			return;
 		}
@@ -469,7 +470,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 			return;
 		}
 		String defaultName = safe(currentNode.name).isBlank() ? "Request copy" : currentNode.name + " Copy";
-		String name = JOptionPane.showInputDialog(root, "Clone name:", defaultName);
+		String name = TaskbarWindowSupport.showInputDialog(root, "Clone name:", "Clone Request", defaultName);
 		if (name == null || name.isBlank()) {
 			return;
 		}
@@ -532,7 +533,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 	}
 
 	private void createFolder() {
-		String name = JOptionPane.showInputDialog(root, "Collection name:");
+		String name = TaskbarWindowSupport.showInputDialog(root, "Collection name:", "New Collection", "");
 		if (name == null || name.isBlank()) {
 			return;
 		}
@@ -550,12 +551,11 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 			"Request type:", typeCombo
 		};
 		SwingUtilities.invokeLater(nameField::requestFocusInWindow);
-		int result = JOptionPane.showConfirmDialog(
+		int result = TaskbarWindowSupport.showConfirmDialog(
 			root,
 			fields,
 			"New Request",
-			JOptionPane.OK_CANCEL_OPTION,
-			JOptionPane.PLAIN_MESSAGE
+			JOptionPane.OK_CANCEL_OPTION
 		);
 		if (result != JOptionPane.OK_OPTION) {
 			return;
@@ -577,7 +577,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		if (currentNode == null) {
 			return;
 		}
-		int confirm = JOptionPane.showConfirmDialog(root,
+		int confirm = TaskbarWindowSupport.showConfirmDialog(root,
 													"Delete \"" + currentNode.name + "\"?",
 													"Confirm",
 													JOptionPane.OK_CANCEL_OPTION
@@ -599,7 +599,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		chooser.addChoosableFileFilter(jsonFilter);
 		chooser.addChoosableFileFilter(httpFilter);
 		chooser.setFileFilter(jsonFilter);
-		int result = chooser.showOpenDialog(root);
+		int result = TaskbarWindowSupport.showOpenDialog(chooser, root);
 		if (result != JFileChooser.APPROVE_OPTION) {
 			return;
 		}
@@ -611,13 +611,12 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		try {
 			WebrunnerState imported = mapper.readValue(selectedFile, WebrunnerState.class);
 			Object[] options = new Object[] {"Merge", "Replace", "Cancel"};
-			int choice = JOptionPane.showOptionDialog(
+			int choice = TaskbarWindowSupport.showOptionDialog(
 				root,
 				"Import mode:",
 				"Import Collections",
 				JOptionPane.DEFAULT_OPTION,
 				JOptionPane.QUESTION_MESSAGE,
-				null,
 				options,
 				options[0]
 			);
@@ -633,7 +632,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 			editorCards.show(editorPanel, "empty");
 			reloadTree();
 		} catch (Exception error) {
-			JOptionPane.showMessageDialog(
+			TaskbarWindowSupport.showMessageDialog(
 				root,
 				"Failed to import: " + error.getMessage(),
 				"Import error",
@@ -656,7 +655,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 			chooser.setFileFilter(jsonFilter);
 			chooser.setSelectedFile(new File("intelli-webrunner.json"));
 		}
-		int result = chooser.showSaveDialog(root);
+		int result = TaskbarWindowSupport.showSaveDialog(chooser, root);
 		if (result != JFileChooser.APPROVE_OPTION) {
 			return;
 		}
@@ -670,7 +669,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 			mapper.writerWithDefaultPrettyPrinter()
 				.writeValue(ensureExtension(selectedFile, "json"), stateService.exportState());
 		} catch (Exception error) {
-			JOptionPane.showMessageDialog(
+			TaskbarWindowSupport.showMessageDialog(
 				root,
 				"Failed to export: " + error.getMessage(),
 				"Export error",
@@ -685,7 +684,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		FileNameExtensionFilter jsonFilter = new FileNameExtensionFilter("Webrunner JSON collections", "json");
 		chooser.addChoosableFileFilter(jsonFilter);
 		chooser.setFileFilter(jsonFilter);
-		int result = chooser.showOpenDialog(root);
+		int result = TaskbarWindowSupport.showOpenDialog(chooser, root);
 		if (result != JFileChooser.APPROVE_OPTION) {
 			return;
 		}
@@ -693,13 +692,12 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		try {
 			WebrunnerState imported = mapper.readValue(selectedFile, WebrunnerState.class);
 			Object[] options = new Object[] {"Merge", "Replace", "Cancel"};
-			int choice = JOptionPane.showOptionDialog(
+			int choice = TaskbarWindowSupport.showOptionDialog(
 				root,
 				"Import mode:",
 				"Import Collections",
 				JOptionPane.DEFAULT_OPTION,
 				JOptionPane.QUESTION_MESSAGE,
-				null,
 				options,
 				options[0]
 			);
@@ -715,7 +713,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 			editorCards.show(editorPanel, "empty");
 			reloadTree();
 		} catch (Exception error) {
-			JOptionPane.showMessageDialog(
+			TaskbarWindowSupport.showMessageDialog(
 				root,
 				"Failed to import: " + error.getMessage(),
 				"Import error",
@@ -731,7 +729,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		chooser.addChoosableFileFilter(jsonFilter);
 		chooser.setFileFilter(jsonFilter);
 		chooser.setSelectedFile(new File("intelli-webrunner.json"));
-		int result = chooser.showSaveDialog(root);
+		int result = TaskbarWindowSupport.showSaveDialog(chooser, root);
 		if (result != JFileChooser.APPROVE_OPTION) {
 			return;
 		}
@@ -740,7 +738,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 			mapper.writerWithDefaultPrettyPrinter()
 				.writeValue(ensureExtension(selectedFile, "json"), stateService.exportState());
 		} catch (Exception error) {
-			JOptionPane.showMessageDialog(
+			TaskbarWindowSupport.showMessageDialog(
 				root,
 				"Failed to export: " + error.getMessage(),
 				"Export error",
@@ -755,7 +753,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		FileNameExtensionFilter httpFilter = new FileNameExtensionFilter("IntelliJ HTTP files", "http");
 		chooser.addChoosableFileFilter(httpFilter);
 		chooser.setFileFilter(httpFilter);
-		int result = chooser.showOpenDialog(root);
+		int result = TaskbarWindowSupport.showOpenDialog(chooser, root);
 		if (result != JFileChooser.APPROVE_OPTION) {
 			return;
 		}
@@ -777,7 +775,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		} else {
 			chooser.setSelectedFile(new File("request.http"));
 		}
-		int result = chooser.showSaveDialog(root);
+		int result = TaskbarWindowSupport.showSaveDialog(chooser, root);
 		if (result != JFileChooser.APPROVE_OPTION) {
 			return;
 		}
@@ -788,7 +786,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 	private void importHttpFromTree() {
 		RequestTreePanel.TreeFolderSelection selection = treePanel.getTreeFolderSelection();
 		if (selection == null) {
-			JOptionPane.showMessageDialog(
+			TaskbarWindowSupport.showMessageDialog(
 				root,
 				"Select root or a folder to import into.",
 				"Import error",
@@ -801,7 +799,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		FileNameExtensionFilter httpFilter = new FileNameExtensionFilter("IntelliJ HTTP files", "http");
 		chooser.addChoosableFileFilter(httpFilter);
 		chooser.setFileFilter(httpFilter);
-		int result = chooser.showOpenDialog(root);
+		int result = TaskbarWindowSupport.showOpenDialog(chooser, root);
 		if (result != JFileChooser.APPROVE_OPTION) {
 			return;
 		}
@@ -815,7 +813,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 	private void exportHttpFromTree() {
 		RequestTreePanel.TreeFolderSelection selection = treePanel.getTreeFolderSelection();
 		if (selection == null) {
-			JOptionPane.showMessageDialog(
+			TaskbarWindowSupport.showMessageDialog(
 				root,
 				"Select root or a folder to export.",
 				"Export error",
@@ -825,7 +823,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		}
 		List<NodeState> requests = treePanel.collectHttpRequestsInSubtree(selection.folderId);
 		if (requests.isEmpty()) {
-			JOptionPane.showMessageDialog(
+			TaskbarWindowSupport.showMessageDialog(
 				root,
 				"No HTTP requests found to export.",
 				"Export",
@@ -841,7 +839,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		String baseName =
 			selection.displayName == null || selection.displayName.isBlank() ? "requests" : selection.displayName;
 		chooser.setSelectedFile(new File(safeFileName(baseName) + ".http"));
-		int result = chooser.showSaveDialog(root);
+		int result = TaskbarWindowSupport.showSaveDialog(chooser, root);
 		if (result != JFileChooser.APPROVE_OPTION) {
 			return;
 		}
@@ -852,7 +850,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 	private void importOpenApiFromTree() {
 		RequestTreePanel.TreeFolderSelection selection = treePanel.getTreeFolderSelection();
 		if (selection == null) {
-			JOptionPane.showMessageDialog(
+			TaskbarWindowSupport.showMessageDialog(
 				root,
 				"Select root or a folder to import into.",
 				"Import error",
@@ -865,7 +863,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		FileNameExtensionFilter jsonFilter = new FileNameExtensionFilter("OpenAPI JSON", "json");
 		chooser.addChoosableFileFilter(jsonFilter);
 		chooser.setFileFilter(jsonFilter);
-		int result = chooser.showOpenDialog(root);
+		int result = TaskbarWindowSupport.showOpenDialog(chooser, root);
 		if (result != JFileChooser.APPROVE_OPTION) {
 			return;
 		}
@@ -879,7 +877,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 	private void exportOpenApiFromTree() {
 		RequestTreePanel.TreeFolderSelection selection = treePanel.getTreeFolderSelection();
 		if (selection == null) {
-			JOptionPane.showMessageDialog(
+			TaskbarWindowSupport.showMessageDialog(
 				root,
 				"Select root or a folder to export.",
 				"Export error",
@@ -889,7 +887,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		}
 		List<NodeState> requests = treePanel.collectHttpRequestsInSubtree(selection.folderId);
 		if (requests.isEmpty()) {
-			JOptionPane.showMessageDialog(
+			TaskbarWindowSupport.showMessageDialog(
 				root,
 				"No HTTP requests found to export.",
 				"Export",
@@ -905,7 +903,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		String baseName =
 			selection.displayName == null || selection.displayName.isBlank() ? "openapi" : selection.displayName;
 		chooser.setSelectedFile(new File(safeFileName(baseName) + "-openapi.json"));
-		int result = chooser.showSaveDialog(root);
+		int result = TaskbarWindowSupport.showSaveDialog(chooser, root);
 		if (result != JFileChooser.APPROVE_OPTION) {
 			return;
 		}
@@ -924,7 +922,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		try {
 			List<HttpFileRequest> requests = HttpFileCodec.parse(file);
 			if (requests.isEmpty()) {
-				JOptionPane.showMessageDialog(
+				TaskbarWindowSupport.showMessageDialog(
 					root,
 					"No HTTP requests found in file.",
 					"Import",
@@ -971,7 +969,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 			editorCards.show(editorPanel, "empty");
 			reloadTree();
 		} catch (Exception error) {
-			JOptionPane.showMessageDialog(
+			TaskbarWindowSupport.showMessageDialog(
 				root,
 				"Failed to import .http: " + error.getMessage(),
 				"Import error",
@@ -982,7 +980,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 
 	private void exportHttpRequest(File file) {
 		if (currentNode == null || currentNode.requestType != RequestType.HTTP) {
-			JOptionPane.showMessageDialog(
+			TaskbarWindowSupport.showMessageDialog(
 				root,
 				"Select an HTTP request to export.",
 				"Export error",
@@ -994,7 +992,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		RequestDetailsState details = stateService.getRequestDetails(currentNode.id);
 		RequestStatusState status = stateService.getRequestStatus(currentNode.id);
 		if (details == null || details.url == null || details.url.isBlank()) {
-			JOptionPane.showMessageDialog(root, "Missing request URL.", "Export error", JOptionPane.ERROR_MESSAGE);
+			TaskbarWindowSupport.showMessageDialog(root, "Missing request URL.", "Export error", JOptionPane.ERROR_MESSAGE);
 			return;
 		}
 		String method = details.method == null ? "GET" : details.method;
@@ -1031,7 +1029,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		try {
 			Files.writeString(file.toPath(), builder.toString(), StandardCharsets.UTF_8);
 		} catch (Exception error) {
-			JOptionPane.showMessageDialog(
+			TaskbarWindowSupport.showMessageDialog(
 				root,
 				"Failed to export .http: " + error.getMessage(),
 				"Export error",
@@ -1062,7 +1060,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		try {
 			Files.writeString(file.toPath(), builder.toString(), StandardCharsets.UTF_8);
 		} catch (Exception error) {
-			JOptionPane.showMessageDialog(
+			TaskbarWindowSupport.showMessageDialog(
 				root,
 				"Failed to export .http: " + error.getMessage(),
 				"Export error",
@@ -1170,7 +1168,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		try {
 			mapper.writerWithDefaultPrettyPrinter().writeValue(file, doc);
 		} catch (Exception error) {
-			JOptionPane.showMessageDialog(
+			TaskbarWindowSupport.showMessageDialog(
 				root,
 				"Failed to export OpenAPI: " + error.getMessage(),
 				"Export error",
@@ -1188,7 +1186,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 			Map<String, Object> doc = mapper.readValue(file, Map.class);
 			Object openapi = doc.get("openapi");
 			if (openapi == null) {
-				JOptionPane.showMessageDialog(
+				TaskbarWindowSupport.showMessageDialog(
 					root,
 					"Invalid OpenAPI file (missing 'openapi').",
 					"Import error",
@@ -1198,7 +1196,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 			}
 			Object pathsObj = doc.get("paths");
 			if (!(pathsObj instanceof Map<?, ?> paths)) {
-				JOptionPane.showMessageDialog(
+				TaskbarWindowSupport.showMessageDialog(
 					root,
 					"OpenAPI file has no paths.",
 					"Import",
@@ -1257,7 +1255,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 				}
 			}
 			if (created == 0) {
-				JOptionPane.showMessageDialog(
+				TaskbarWindowSupport.showMessageDialog(
 					root,
 					"No HTTP operations found in OpenAPI file.",
 					"Import",
@@ -1269,7 +1267,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 			editorCards.show(editorPanel, "empty");
 			reloadTree();
 		} catch (Exception error) {
-			JOptionPane.showMessageDialog(
+			TaskbarWindowSupport.showMessageDialog(
 				root,
 				"Failed to import OpenAPI: " + error.getMessage(),
 				"Import error",

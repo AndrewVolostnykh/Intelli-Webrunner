@@ -15,6 +15,7 @@ import com.non_organic_onion.intelli.webrunner.state.NodeState;
 import com.non_organic_onion.intelli.webrunner.state.NodeType;
 import com.non_organic_onion.intelli.webrunner.state.RequestDetailsState;
 import com.non_organic_onion.intelli.webrunner.state.RequestStatusState;
+import com.non_organic_onion.intelli.webrunner.state.RequestTestState;
 import com.non_organic_onion.intelli.webrunner.state.RequestType;
 import com.non_organic_onion.intelli.webrunner.util.JsonUtils;
 import com.intellij.execution.filters.TextConsoleBuilderFactory;
@@ -41,7 +42,7 @@ import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
-import javax.swing.JDialog;
+import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JOptionPane;
@@ -53,7 +54,6 @@ import javax.swing.JTree;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
 import javax.swing.TransferHandler;
-import javax.swing.WindowConstants;
 import javax.swing.table.TableCellEditor;
 import javax.swing.table.TableColumn;
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -79,6 +79,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Future;
@@ -115,6 +116,7 @@ public final class ChainEditorPanel {
 	private final JCheckBox runBasicBeforeRequestCheckbox = new JCheckBox("Run basic Before request");
 	private final JCheckBox runBasicAfterRequestCheckbox = new JCheckBox("Run basic After request");
 	private final JCheckBox runBasicStressCheckbox = new JCheckBox("Run basic Stress");
+	private final JCheckBox runBasicTestsCheckbox = new JCheckBox("Run basic tests");
 	private final EditorTextField chainBeforeRequestArea;
 	private final EditorTextField chainAfterRequestArea;
 	private final EditorTextField chainRawRequestArea;
@@ -278,6 +280,7 @@ public final class ChainEditorPanel {
 		checkboxes.add(runBasicBeforeRequestCheckbox);
 		checkboxes.add(runBasicAfterRequestCheckbox);
 		checkboxes.add(runBasicStressCheckbox);
+		checkboxes.add(runBasicTestsCheckbox);
 
 		JPanel content = new JPanel(new BorderLayout(0, 8));
 		content.add(successCodesRow, BorderLayout.NORTH);
@@ -411,12 +414,11 @@ public final class ChainEditorPanel {
 			"Request type:", typeCombo
 		};
 		SwingUtilities.invokeLater(nameField::requestFocusInWindow);
-		int result = JOptionPane.showConfirmDialog(
+		int result = TaskbarWindowSupport.showConfirmDialog(
 			root,
 			fields,
 			"New Chain Request",
-			JOptionPane.OK_CANCEL_OPTION,
-			JOptionPane.PLAIN_MESSAGE
+			JOptionPane.OK_CANCEL_OPTION
 		);
 		if (result != JOptionPane.OK_OPTION) {
 			return;
@@ -589,89 +591,19 @@ public final class ChainEditorPanel {
 			return;
 		}
 		ChainStepState stepState = chainStepStateAt(stepIndex);
-		String beforeScript = combineScripts(
-			stepState.runBasicBeforeRequest ? status.beforeScript : "",
-			stepState.beforeRequestScript
-		);
-		String afterScript = combineScripts(
-			stepState.runBasicAfterRequest ? status.afterScript : "",
-			stepState.afterRequestScript
-		);
-		ExecutionResult result;
-		if (details.type == RequestType.HTTP) {
-			String method = details.method == null ? "GET" : details.method;
-			HttpStressConfig stressConfig = loadStressConfig(stepState, status);
-			if (stressConfig.enabled()) {
-				if (!stressConfig.hasLimit()) {
-					result = ExecutionResult.failure(List.of("Stress test requires Total Duration or Number of requests."));
-				} else {
-					result = httpStressExecutionService.execute(
-						new HttpStressRequest(
-							method,
-							details.url,
-							status.requestHeaders,
-							status.requestParams,
-							status.requestBody,
-							beforeScript,
-							afterScript,
-							details.payloadType,
-							status.formData,
-							status.binaryFilePath,
-							session.chainContext,
-							session.chainRequests,
-							requestTimeout(details)
-						),
-						stressConfig
-					);
-					if (result == null) {
-						return;
-					}
-				}
-			} else {
-				result = executionService.executeWithScripts(method,
-											details.url,
-											status.requestHeaders,
-											status.requestParams,
-											status.requestBody,
-											beforeScript,
-											afterScript,
-											true,
-											session.vars,
-											session.chainContext,
-											session.chainRequests,
-											details.payloadType,
-											status.formData,
-											status.binaryFilePath,
-											requestTimeout(details)
-				);
-			}
-		} else if (details.type == RequestType.GRPC) {
-			if (details.service == null || details.service.isBlank() || details.grpcMethod == null ||
-				details.grpcMethod.isBlank()) {
-				session.logs.add("Missing gRPC service or method for " + requestId);
-				updateChainUi(session, node);
-				return;
-			}
-			result = executionService.executeGrpcWithScripts(details,
-											status.requestHeaders,
-											status.requestParams,
-											status.requestBody,
-											beforeScript,
-											afterScript,
-											session.vars,
-											session.chainContext,
-											session.chainRequests,
-											requestTimeout(details)
-			);
-		} else {
-			session.logs.add("Unsupported request in chain: " + requestId);
-			updateChainUi(session, null);
+		ExecutionResult result = stepState.runBasicTests
+			? executeChainStepTests(session, node, details, status, stepState)
+			: executeChainRequestVariant(session, requestId, details, status, stepState);
+		if (result == null) {
 			return;
 		}
 		appendExecutionLogs(session, result);
 		appendFlowLog(session, node, result);
 		updateChainStepResultState(stepIndex, result);
-		updateChainStepMetadata(stepIndex, result, parseSuccessCodes(chainStepStateAt(stepIndex).successCodes));
+		Set<Integer> successCodes = stepState.runBasicTests
+			? requestTestSuccessCodes()
+			: parseSuccessCodes(chainStepStateAt(stepIndex).successCodes);
+		updateChainStepMetadata(stepIndex, result, successCodes);
 		storeChainRequest(session, node, details, status, result);
 		if ("Interrupted".equals(result.flowStatus) || hasAssertionFailure(result)) {
 			session.cancelled = true;
@@ -708,6 +640,232 @@ public final class ChainEditorPanel {
 		updateChainResult(stepIndex, result);
 
 		updateChainUi(session, node, stepIndex);
+	}
+
+	private ExecutionResult executeChainStepTests(
+		ChainSession session,
+		NodeState node,
+		RequestDetailsState details,
+		RequestStatusState baseStatus,
+		ChainStepState stepState
+	) {
+		ExecutionResult lastResult = executeChainRequestVariant(session, node.id, details, baseStatus, stepState);
+		updateRequestBaseTestResult(node.id, lastResult);
+		if (lastResult == null || shouldStopAfterChainTest(lastResult)) {
+			return lastResult;
+		}
+		if (baseStatus.tests == null || baseStatus.tests.isEmpty()) {
+			return lastResult;
+		}
+		for (RequestTestState test : baseStatus.tests) {
+			if (test == null || test.disabled) {
+				continue;
+			}
+			if (session.cancelled || Thread.currentThread().isInterrupted()) {
+				return lastResult;
+			}
+			RequestStatusState testStatus = statusForChainTest(baseStatus, test);
+			ExecutionResult testResult = executeChainRequestVariant(session, node.id, details, testStatus, stepState);
+			if (testResult == null) {
+				return lastResult;
+			}
+			updateRequestTestResult(node.id, test.id, testResult);
+			lastResult = testResult;
+			if (shouldStopAfterChainTest(testResult)) {
+				return testResult;
+			}
+		}
+		return lastResult;
+	}
+
+	private boolean shouldStopAfterChainTest(ExecutionResult result) {
+		return "Interrupted".equals(result.flowStatus)
+			|| hasAssertionFailure(result)
+			|| !requestTestSuccessCodes().contains(result.statusCode);
+	}
+
+	private RequestStatusState statusForChainTest(RequestStatusState baseStatus, RequestTestState test) {
+		RequestStatusState status = copyBaseStatus(baseStatus);
+		status.requestBody = test.requestBody;
+		status.requestHeaders = test.requestHeaders == null ? List.of() : test.requestHeaders;
+		status.requestParams = test.requestParams == null ? List.of() : test.requestParams;
+		status.formData = test.formData == null ? List.of() : test.formData;
+		status.binaryFilePath = test.binaryFilePath;
+		status.beforeScript = test.beforeScript;
+		status.afterScript = test.afterScript;
+		return status;
+	}
+
+	private RequestStatusState copyBaseStatus(RequestStatusState source) {
+		RequestStatusState copy = new RequestStatusState();
+		if (source == null) {
+			return copy;
+		}
+		copy.requestId = source.requestId;
+		copy.requestBody = source.requestBody;
+		copy.requestHeaders = source.requestHeaders == null ? List.of() : source.requestHeaders;
+		copy.requestParams = source.requestParams == null ? List.of() : source.requestParams;
+		copy.formData = source.formData == null ? List.of() : source.formData;
+		copy.binaryFilePath = source.binaryFilePath;
+		copy.beforeScript = source.beforeScript;
+		copy.afterScript = source.afterScript;
+		copy.stressEnabled = source.stressEnabled;
+		copy.stressRequestsPerSec = source.stressRequestsPerSec;
+		copy.stressTotalDuration = source.stressTotalDuration;
+		copy.stressTotalDurationUnit = source.stressTotalDurationUnit;
+		copy.stressNumberOfRequests = source.stressNumberOfRequests;
+		copy.stressParallelWorkers = source.stressParallelWorkers;
+		copy.stressRampUpTime = source.stressRampUpTime;
+		copy.stressRampUpTimeUnit = source.stressRampUpTimeUnit;
+		copy.stressDelayBetweenRequests = source.stressDelayBetweenRequests;
+		copy.stressDelayBetweenRequestsUnit = source.stressDelayBetweenRequestsUnit;
+		copy.stressJitterFrom = source.stressJitterFrom;
+		copy.stressJitterTo = source.stressJitterTo;
+		copy.kafkaKeyType = source.kafkaKeyType;
+		copy.kafkaBodyType = source.kafkaBodyType;
+		copy.kafkaPartitions = source.kafkaPartitions;
+		return copy;
+	}
+
+	private void updateRequestBaseTestResult(String requestId, ExecutionResult result) {
+		if (requestId == null || result == null) {
+			return;
+		}
+		RequestStatusState status = stateService.getRequestStatus(requestId);
+		if (status == null) {
+			return;
+		}
+		status.resultStatus = resolveRequestTestStatus(result);
+		status.resultDetails = requestTestResultDetails(result);
+		status.responseBody = result.responseBody;
+		status.responseHeaders = result.responseHeaders;
+		status.responseCookies = result.responseCookies;
+		status.logs = result.logs;
+		stateService.saveRequestStatus(status);
+	}
+
+	private void updateRequestTestResult(String requestId, String testId, ExecutionResult result) {
+		if (requestId == null || testId == null || result == null) {
+			return;
+		}
+		RequestStatusState status = stateService.getRequestStatus(requestId);
+		if (status == null || status.tests == null) {
+			return;
+		}
+		for (RequestTestState test : status.tests) {
+			if (test == null || !Objects.equals(test.id, testId)) {
+				continue;
+			}
+			test.resultStatus = resolveRequestTestStatus(result);
+			test.resultDetails = requestTestResultDetails(result);
+			test.responseBody = result.responseBody;
+			test.responseHeaders = result.responseHeaders;
+			test.responseCookies = result.responseCookies;
+			test.logs = result.logs;
+			stateService.saveRequestStatus(status);
+			return;
+		}
+	}
+
+	private String resolveRequestTestStatus(ExecutionResult result) {
+		if (hasAssertionFailure(result)) {
+			return "Failed";
+		}
+		return requestTestSuccessCodes().contains(result.statusCode) ? "Passed" : "Failed";
+	}
+
+	private String requestTestResultDetails(ExecutionResult result) {
+		return result.statusCode + " | " + formatDuration(result.durationMillis) + " | " +
+			formatSize(responseBodySize(result.responseBody));
+	}
+
+	private ExecutionResult executeChainRequestVariant(
+		ChainSession session,
+		String requestId,
+		RequestDetailsState details,
+		RequestStatusState status,
+		ChainStepState stepState
+	) {
+		String beforeScript = combineScripts(
+			stepState.runBasicBeforeRequest ? status.beforeScript : "",
+			stepState.beforeRequestScript
+		);
+		String afterScript = combineScripts(
+			stepState.runBasicAfterRequest ? status.afterScript : "",
+			stepState.afterRequestScript
+		);
+		ExecutionResult result;
+		if (details.type == RequestType.HTTP) {
+			String method = details.method == null ? "GET" : details.method;
+			HttpStressConfig stressConfig = loadStressConfig(stepState, status);
+			if (stressConfig.enabled()) {
+				if (!stressConfig.hasLimit()) {
+					result = ExecutionResult.failure(List.of("Stress test requires Total Duration or Number of requests."));
+				} else {
+					result = httpStressExecutionService.execute(
+						new HttpStressRequest(
+							method,
+							details.url,
+							status.requestHeaders,
+							status.requestParams,
+							status.requestBody,
+							beforeScript,
+							afterScript,
+							details.payloadType,
+							status.formData,
+							status.binaryFilePath,
+							session.chainContext,
+							session.chainRequests,
+							requestTimeout(details)
+						),
+						stressConfig
+					);
+					if (result == null) {
+						return null;
+					}
+				}
+			} else {
+				result = executionService.executeWithScripts(method,
+											details.url,
+											status.requestHeaders,
+											status.requestParams,
+											status.requestBody,
+											beforeScript,
+											afterScript,
+											true,
+											session.vars,
+											session.chainContext,
+											session.chainRequests,
+											details.payloadType,
+											status.formData,
+											status.binaryFilePath,
+											requestTimeout(details)
+				);
+			}
+		} else if (details.type == RequestType.GRPC) {
+			if (details.service == null || details.service.isBlank() || details.grpcMethod == null ||
+				details.grpcMethod.isBlank()) {
+				session.logs.add("Missing gRPC service or method for " + requestId);
+				updateChainUi(session, null);
+				return null;
+			}
+			result = executionService.executeGrpcWithScripts(details,
+											status.requestHeaders,
+											status.requestParams,
+											status.requestBody,
+											beforeScript,
+											afterScript,
+											session.vars,
+											session.chainContext,
+											session.chainRequests,
+											requestTimeout(details)
+			);
+		} else {
+			session.logs.add("Unsupported request in chain: " + requestId);
+			updateChainUi(session, null);
+			return null;
+		}
+		return result;
 	}
 
 	private void updateChainResult(int stepIndex, ExecutionResult result) {
@@ -748,6 +906,7 @@ public final class ChainEditorPanel {
 		step.runBasicBeforeRequest = runBasicBeforeRequestCheckbox.isSelected();
 		step.runBasicAfterRequest = runBasicAfterRequestCheckbox.isSelected();
 		step.runBasicStress = runBasicStressCheckbox.isSelected();
+		step.runBasicTests = runBasicTestsCheckbox.isSelected();
 		step.beforeRequestScript = chainBeforeRequestArea.getText();
 		step.afterRequestScript = chainAfterRequestArea.getText();
 		step.rawRequestSnapshot = chainRawRequestArea.getText();
@@ -768,6 +927,7 @@ public final class ChainEditorPanel {
 				runBasicBeforeRequestCheckbox.setSelected(false);
 				runBasicAfterRequestCheckbox.setSelected(false);
 				runBasicStressCheckbox.setSelected(false);
+				runBasicTestsCheckbox.setSelected(false);
 				chainBeforeRequestArea.setText("");
 				chainAfterRequestArea.setText("");
 				chainRawRequestArea.setText("");
@@ -781,6 +941,7 @@ public final class ChainEditorPanel {
 			runBasicBeforeRequestCheckbox.setSelected(step.runBasicBeforeRequest);
 			runBasicAfterRequestCheckbox.setSelected(step.runBasicAfterRequest);
 			runBasicStressCheckbox.setSelected(step.runBasicStress);
+			runBasicTestsCheckbox.setSelected(step.runBasicTests);
 			chainBeforeRequestArea.setText(safe(step.beforeRequestScript));
 			chainAfterRequestArea.setText(safe(step.afterRequestScript));
 			chainRawRequestArea.setText(safe(step.rawRequestSnapshot));
@@ -843,6 +1004,7 @@ public final class ChainEditorPanel {
 		copy.runBasicBeforeRequest = source.runBasicBeforeRequest;
 		copy.runBasicAfterRequest = source.runBasicAfterRequest;
 		copy.runBasicStress = source.runBasicStress;
+		copy.runBasicTests = source.runBasicTests;
 		copy.runIfScript = source.runIfScript;
 		copy.beforeRequestScript = source.beforeRequestScript;
 		copy.afterRequestScript = source.afterRequestScript;
@@ -1094,6 +1256,14 @@ public final class ChainEditorPanel {
 		return parseSuccessCodes(comboEditorText(chainSuccessCodesCombo));
 	}
 
+	private Set<Integer> requestTestSuccessCodes() {
+		Set<Integer> codes = new HashSet<>();
+		for (int code = 200; code < 300; code++) {
+			codes.add(code);
+		}
+		return codes;
+	}
+
 	private Set<Integer> parseSuccessCodes(String text) {
 		Set<Integer> codes = new HashSet<>();
 		for (String part : safe(text).split(",")) {
@@ -1186,8 +1356,7 @@ public final class ChainEditorPanel {
 			false
 		);
 
-		JDialog dialog = new JDialog();
-		dialog.setTitle("Chain Context");
+		JFrame dialog = TaskbarWindowSupport.createFrame("Chain Context", root);
 		JTabbedPane tabs = new JTabbedPane();
 		tabs.add("Variables", buildChainContextVariablesPanel(variablesModel));
 
@@ -1212,7 +1381,6 @@ public final class ChainEditorPanel {
 		dialog.getContentPane().add(content);
 		dialog.setSize(700, 520);
 		dialog.setLocationRelativeTo(root);
-		dialog.setModal(false);
 		dialog.setVisible(true);
 	}
 
@@ -1396,10 +1564,7 @@ public final class ChainEditorPanel {
 	}
 
 	private RequestSelection showRequestSelectionDialog() {
-		JDialog dialog = new JDialog();
-		dialog.setTitle("Add Chain Request");
-		dialog.setModal(true);
-		dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+		JFrame dialog = TaskbarWindowSupport.createFrame("Add Chain Request", root);
 		JTree requestTree = new JTree(buildRequestSelectionTree());
 		requestTree.setRootVisible(true);
 		requestTree.setCellRenderer(new NodeTreeCellRenderer(stateService));
@@ -1442,7 +1607,7 @@ public final class ChainEditorPanel {
 		dialog.getContentPane().add(actions, BorderLayout.SOUTH);
 		dialog.setSize(520, 640);
 		dialog.setLocationRelativeTo(root);
-		dialog.setVisible(true);
+		TaskbarWindowSupport.showFrameAndWait(dialog);
 		return selection[0];
 	}
 

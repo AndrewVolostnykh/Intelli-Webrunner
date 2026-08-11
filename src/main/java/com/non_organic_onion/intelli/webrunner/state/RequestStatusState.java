@@ -14,8 +14,11 @@ public class RequestStatusState {
     public String responseHeaders;
     public String responseCookies;
     public String logs;
+    public String resultStatus;
+    public String resultDetails;
     public String beforeScript;
     public String afterScript;
+    public List<RequestTestState> tests = new ArrayList<>();
     public String kafkaKeyType;
     public String kafkaBodyType;
     public String kafkaPartitions;

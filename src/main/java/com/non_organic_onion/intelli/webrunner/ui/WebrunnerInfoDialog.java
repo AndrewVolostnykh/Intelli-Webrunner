@@ -5,7 +5,7 @@ import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBScrollPane;
 
 import javax.swing.JComponent;
-import javax.swing.JDialog;
+import javax.swing.JFrame;
 import javax.swing.JEditorPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTree;
@@ -49,13 +49,11 @@ public final class WebrunnerInfoDialog {
 	}
 
 	public static void show(Component parent) {
-		JDialog dialog = new JDialog();
-		dialog.setTitle("Webrunner Info");
+		JFrame dialog = TaskbarWindowSupport.createFrame("Webrunner Info", parent);
 		dialog.getContentPane().setLayout(new BorderLayout());
 		dialog.getContentPane().add(buildDocsBrowser(), BorderLayout.CENTER);
 		dialog.setSize(1100, 760);
 		dialog.setLocationRelativeTo(parent);
-		dialog.setModal(false);
 		dialog.setVisible(true);
 	}
 

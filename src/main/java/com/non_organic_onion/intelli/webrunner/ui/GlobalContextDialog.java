@@ -11,7 +11,7 @@ import com.intellij.ui.components.JBScrollPane;
 
 import javax.swing.JButton;
 import javax.swing.JComponent;
-import javax.swing.JDialog;
+import javax.swing.JFrame;
 import javax.swing.JPanel;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
@@ -35,19 +35,17 @@ public final class GlobalContextDialog {
 		Project project,
 		GlobalWebrunnerStateService stateService
 	) {
-		JDialog dialog = new JDialog();
-		dialog.setTitle("Global Context");
+		JFrame dialog = TaskbarWindowSupport.createFrame("Global Context", parent);
 		dialog.getContentPane().add(buildContent(project, stateService, dialog));
 		dialog.setSize(900, 700);
 		dialog.setLocationRelativeTo(parent);
-		dialog.setModal(false);
 		dialog.setVisible(true);
 	}
 
 	private static JComponent buildContent(
 		Project project,
 		GlobalWebrunnerStateService stateService,
-		JDialog dialog
+		JFrame dialog
 	) {
 		GlobalContextState state = stateService.getGlobalContext();
 		HeaderTableModel variablesModel = new HeaderTableModel();

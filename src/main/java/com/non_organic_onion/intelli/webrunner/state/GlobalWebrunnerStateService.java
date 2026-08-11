@@ -491,8 +491,11 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             existing.responseHeaders = status.responseHeaders;
             existing.responseCookies = status.responseCookies;
             existing.logs = status.logs;
+            existing.resultStatus = status.resultStatus;
+            existing.resultDetails = status.resultDetails;
             existing.beforeScript = status.beforeScript;
             existing.afterScript = status.afterScript;
+            existing.tests = cloneTests(status.tests);
             existing.kafkaKeyType = status.kafkaKeyType;
             existing.kafkaBodyType = status.kafkaBodyType;
             existing.kafkaPartitions = status.kafkaPartitions;
@@ -755,8 +758,11 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
         clone.responseHeaders = status.responseHeaders;
         clone.responseCookies = status.responseCookies;
         clone.logs = status.logs;
+        clone.resultStatus = status.resultStatus;
+        clone.resultDetails = status.resultDetails;
         clone.beforeScript = status.beforeScript;
         clone.afterScript = status.afterScript;
+        clone.tests = cloneTests(status.tests);
         clone.kafkaKeyType = status.kafkaKeyType;
         clone.kafkaBodyType = status.kafkaBodyType;
         clone.kafkaPartitions = status.kafkaPartitions;
@@ -785,6 +791,37 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             clone.value = entry.value;
             clone.enabled = entry.enabled;
             clone.file = entry.file;
+            copy.add(clone);
+        }
+        return copy;
+    }
+
+    private List<RequestTestState> cloneTests(List<RequestTestState> tests) {
+        List<RequestTestState> copy = new ArrayList<>();
+        if (tests == null) {
+            return copy;
+        }
+        for (RequestTestState test : tests) {
+            if (test == null) {
+                continue;
+            }
+            RequestTestState clone = new RequestTestState();
+            clone.id = test.id;
+            clone.name = test.name;
+            clone.disabled = test.disabled;
+            clone.resultStatus = test.resultStatus;
+            clone.resultDetails = test.resultDetails;
+            clone.requestBody = test.requestBody;
+            clone.requestHeaders = test.requestHeaders == null ? new ArrayList<>() : cloneHeaders(test.requestHeaders);
+            clone.requestParams = test.requestParams == null ? new ArrayList<>() : cloneHeaders(test.requestParams);
+            clone.formData = test.formData == null ? new ArrayList<>() : cloneFormData(test.formData);
+            clone.binaryFilePath = test.binaryFilePath;
+            clone.beforeScript = test.beforeScript;
+            clone.afterScript = test.afterScript;
+            clone.responseBody = test.responseBody;
+            clone.responseHeaders = test.responseHeaders;
+            clone.responseCookies = test.responseCookies;
+            clone.logs = test.logs;
             copy.add(clone);
         }
         return copy;
@@ -838,6 +875,7 @@ public class GlobalWebrunnerStateService implements PersistentStateComponent<Web
             clone.runBasicBeforeRequest = step.runBasicBeforeRequest;
             clone.runBasicAfterRequest = step.runBasicAfterRequest;
             clone.runBasicStress = step.runBasicStress;
+            clone.runBasicTests = step.runBasicTests;
             clone.runIfScript = step.runIfScript;
             clone.beforeRequestScript = step.beforeRequestScript;
             clone.afterRequestScript = step.afterRequestScript;

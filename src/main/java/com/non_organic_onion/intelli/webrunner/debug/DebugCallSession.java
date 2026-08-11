@@ -18,6 +18,7 @@ import com.non_organic_onion.intelli.webrunner.state.NodeState;
 import com.non_organic_onion.intelli.webrunner.state.RequestDetailsState;
 import com.non_organic_onion.intelli.webrunner.state.RequestStatusState;
 import com.non_organic_onion.intelli.webrunner.state.RequestType;
+import com.non_organic_onion.intelli.webrunner.ui.TaskbarWindowSupport;
 import com.non_organic_onion.intelli.webrunner.util.HttpStatusReasons;
 import com.non_organic_onion.intelli.webrunner.util.JsonUtils;
 import com.non_organic_onion.intelli.webrunner.util.PayloadTypes;
@@ -37,7 +38,7 @@ import com.intellij.ui.components.JBTextField;
 
 import javax.swing.JButton;
 import javax.swing.JComponent;
-import javax.swing.JDialog;
+import javax.swing.JFrame;
 import javax.swing.JPanel;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -76,7 +77,7 @@ public final class DebugCallSession {
 	private final RequestDetailsState details;
 	private final RequestStatusState status;
 
-	private JDialog dialog;
+	private JFrame dialog;
 	private ConsoleView outputConsole;
 	private JBTextField inlineScriptField;
 	private JButton inlineRunButton;
@@ -166,8 +167,7 @@ public final class DebugCallSession {
 		if (node != null && node.name != null && !node.name.isBlank()) {
 			title += " - " + node.name;
 		}
-		dialog = new JDialog();
-		dialog.setTitle(title);
+		dialog = TaskbarWindowSupport.createFrame(title, parentComponent);
 		outputConsole = TextConsoleBuilderFactory.getInstance().createBuilder(project).getConsole();
 
 		inlineScriptField = new JBTextField();
@@ -203,7 +203,6 @@ public final class DebugCallSession {
 		dialog.getContentPane().add(actions, BorderLayout.SOUTH);
 		dialog.setSize(900, 700);
 		dialog.setLocationRelativeTo(parentComponent);
-		dialog.setModal(false);
 		dialog.addWindowListener(new WindowAdapter() {
 			@Override
 			public void windowClosing(WindowEvent e) {

@@ -4,9 +4,9 @@ import com.non_organic_onion.intelli.webrunner.state.HeaderPresetState;
 
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
-import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JComponent;
+import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JSpinner;
@@ -45,8 +45,7 @@ public final class SettingsDialog {
 		String settingsFilePath,
 		Consumer<SettingsResult> onSaved
 	) {
-		JDialog dialog = new JDialog();
-		dialog.setTitle("Settings");
+		JFrame dialog = TaskbarWindowSupport.createFrame("Settings", parent);
 		JTabbedPane tabs = new JTabbedPane();
 		JSpinner defaultTimeoutSpinner = createTimeoutSpinner(defaultTimeoutMillis);
 		tabs.add("Config", buildConfigPanel(defaultTimeoutSpinner));
@@ -108,7 +107,6 @@ public final class SettingsDialog {
 		dialog.getContentPane().add(footer, BorderLayout.SOUTH);
 		dialog.setSize(700, 500);
 		dialog.setLocationRelativeTo(parent);
-		dialog.setModal(false);
 		dialog.setVisible(true);
 	}
 
@@ -226,7 +224,7 @@ public final class SettingsDialog {
 				chooser.setCurrentDirectory(parentDir);
 			}
 		}
-		int result = chooser.showSaveDialog(parent);
+		int result = TaskbarWindowSupport.showSaveDialog(chooser, parent);
 		if (result != JFileChooser.APPROVE_OPTION) {
 			return;
 		}

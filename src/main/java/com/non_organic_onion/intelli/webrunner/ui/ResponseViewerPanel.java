@@ -19,7 +19,6 @@ import com.intellij.ui.components.JBScrollPane;
 
 import javax.swing.BorderFactory;
 import javax.swing.JComponent;
-import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JPanel;
 import javax.swing.JTabbedPane;
@@ -216,7 +215,7 @@ public final class ResponseViewerPanel {
 		if (suggestedName != null && !suggestedName.isBlank()) {
 			chooser.setSelectedFile(new File(suggestedName));
 		}
-		int dialogResult = chooser.showSaveDialog(parent);
+		int dialogResult = TaskbarWindowSupport.showSaveDialog(chooser, parent);
 		if (dialogResult != JFileChooser.APPROVE_OPTION) {
 			appendLog("Download canceled.");
 			return;
@@ -235,8 +234,6 @@ public final class ResponseViewerPanel {
 	}
 
 	public void openInWindow(String title, Component parent) {
-		JDialog dialog = new JDialog();
-		dialog.setTitle(title);
 		JTabbedPane tabs = new JTabbedPane();
 
 		EditorTextField bodyField =
@@ -264,11 +261,7 @@ public final class ResponseViewerPanel {
 		}
 		tabs.add("Logs", logsArea.getComponent());
 
-		dialog.getContentPane().add(tabs);
-		dialog.setSize(900, 700);
-		dialog.setLocationRelativeTo(parent);
-		dialog.setModal(false);
-		dialog.setVisible(true);
+		TaskbarWindowSupport.showFrame(title, tabs, parent, 900, 700);
 	}
 
 	private void invokeLater(Runnable runnable) {

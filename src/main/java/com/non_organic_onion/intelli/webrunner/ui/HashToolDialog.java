@@ -1,6 +1,5 @@
 package com.non_organic_onion.intelli.webrunner.ui;
 
-import javax.swing.JDialog;
 import java.awt.Component;
 
 public final class HashToolDialog {
@@ -9,12 +8,6 @@ public final class HashToolDialog {
 	}
 
 	public static void show(Component parent) {
-		JDialog dialog = new JDialog();
-		dialog.setTitle("Hash");
-		dialog.getContentPane().add(new HashToolPanel().getComponent());
-		dialog.setSize(820, 560);
-		dialog.setLocationRelativeTo(parent);
-		dialog.setModal(false);
-		dialog.setVisible(true);
+		TaskbarWindowSupport.showFrame("Hash", new HashToolPanel().getComponent(), parent, 820, 560);
 	}
 }

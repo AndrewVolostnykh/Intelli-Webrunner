@@ -32,6 +32,7 @@ import com.non_organic_onion.intelli.webrunner.state.NodeState;
 import com.non_organic_onion.intelli.webrunner.state.NodeType;
 import com.non_organic_onion.intelli.webrunner.state.RequestDetailsState;
 import com.non_organic_onion.intelli.webrunner.state.RequestStatusState;
+import com.non_organic_onion.intelli.webrunner.state.RequestTestState;
 import com.non_organic_onion.intelli.webrunner.state.RequestType;
 import com.non_organic_onion.intelli.webrunner.util.PayloadTypes;
 import com.non_organic_onion.intelli.webrunner.util.JsonUtils;
@@ -59,22 +60,28 @@ import com.intellij.ui.components.JBTextField;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
-import javax.swing.JDialog;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.JFileChooser;
+import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JSplitPane;
 import javax.swing.JSpinner;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
+import javax.swing.JTree;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.event.TableModelEvent;
 import javax.swing.table.TableCellEditor;
 import javax.swing.table.TableColumn;
+import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.DefaultTreeModel;
+import javax.swing.tree.TreePath;
+import javax.swing.tree.TreeSelectionModel;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
@@ -86,6 +93,8 @@ import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -93,6 +102,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
 import java.util.function.IntConsumer;
@@ -123,6 +133,7 @@ public final class RequestEditorPanel {
 	private static final Dimension ICON_BUTTON_SIZE = new Dimension(28, 28);
 
 	private NodeState activeNode;
+	private String activeTestId;
 	private boolean isLoading = false;
 	private boolean isStoppingTableEditing = false;
 	private boolean isSyncingParamsFromUrl = false;
@@ -166,6 +177,11 @@ public final class RequestEditorPanel {
 	private final CardLayout requestTopCards = new CardLayout();
 	private final JPanel requestTopPanel = new JPanel(requestTopCards);
 	private final JTabbedPane requestTabs = new JTabbedPane();
+	private final DefaultMutableTreeNode testsRootNode = new DefaultMutableTreeNode("Tests");
+	private final DefaultTreeModel testsTreeModel = new DefaultTreeModel(testsRootNode);
+	private final JTree testsTree = new JTree(testsTreeModel);
+	private final JButton runTestsButton = new JButton("Run");
+	private final JButton createTestButton = new JButton("Create");
 	private final EditorTextField requestBodyArea;
 	private final CardLayout bodyCards = new CardLayout();
 	private final JPanel bodyPanel = new JPanel(bodyCards);
@@ -369,7 +385,47 @@ public final class RequestEditorPanel {
 		JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, requestTabs, responseViewer.getComponent());
 		splitPane.setResizeWeight(0.6);
 		SplitPaneStyling.applyThinBlackDivider(splitPane);
-		root.add(splitPane, BorderLayout.CENTER);
+		JSplitPane workspaceSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, splitPane, buildTestsPanel());
+		workspaceSplit.setResizeWeight(0.82);
+		SplitPaneStyling.applyThinBlackDivider(workspaceSplit);
+		root.add(workspaceSplit, BorderLayout.CENTER);
+	}
+
+	private JPanel buildTestsPanel() {
+		JPanel panel = new JPanel(new BorderLayout());
+		JPanel header = new JPanel(new BorderLayout());
+		JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+		header.setBorder(javax.swing.BorderFactory.createEmptyBorder(4, 6, 4, 6));
+		header.add(new JLabel("Tests"), BorderLayout.WEST);
+		actions.add(runTestsButton);
+		actions.add(createTestButton);
+		header.add(actions, BorderLayout.EAST);
+		testsTree.setRootVisible(false);
+		testsTree.setShowsRootHandles(true);
+		testsTree.getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
+		testsTree.setCellRenderer(new RequestTestTreeRenderer());
+		testsTree.addTreeSelectionListener(e -> {
+			if (!isLoading) {
+				selectTestFromTree();
+			}
+		});
+		testsTree.addMouseListener(new MouseAdapter() {
+			@Override
+			public void mousePressed(MouseEvent event) {
+				showTestsContextMenu(event);
+			}
+
+			@Override
+			public void mouseReleased(MouseEvent event) {
+				showTestsContextMenu(event);
+			}
+		});
+		runTestsButton.addActionListener(e -> runAllTests());
+		createTestButton.addActionListener(e -> createTest());
+		panel.add(header, BorderLayout.NORTH);
+		panel.add(new JBScrollPane(testsTree), BorderLayout.CENTER);
+		panel.setPreferredSize(new Dimension(220, 120));
+		return panel;
 	}
 
 	private void updateStressTabVisibility() {
@@ -408,6 +464,192 @@ public final class RequestEditorPanel {
 		if (index >= 0) {
 			requestTabs.removeTabAt(index);
 		}
+	}
+
+	private void rebuildTestsTree(RequestStatusState status) {
+		testsRootNode.removeAllChildren();
+		testsRootNode.add(new DefaultMutableTreeNode(RequestTestTreeRenderer.TestView.base(status == null ? "" : status.resultStatus)));
+		List<RequestTestState> tests = status == null || status.tests == null ? List.of() : status.tests;
+		for (RequestTestState test : tests) {
+			if (test != null) {
+				testsRootNode.add(new DefaultMutableTreeNode(RequestTestTreeRenderer.TestView.test(test)));
+			}
+		}
+		testsTreeModel.reload();
+		for (int row = 0; row < testsTree.getRowCount(); row++) {
+			testsTree.expandRow(row);
+		}
+		selectTestTreeNode(activeTestId);
+	}
+
+	private void selectTestTreeNode(String testId) {
+		for (int index = 0; index < testsRootNode.getChildCount(); index++) {
+			DefaultMutableTreeNode child = (DefaultMutableTreeNode) testsRootNode.getChildAt(index);
+			Object value = child.getUserObject();
+			if (value instanceof RequestTestTreeRenderer.TestView testView
+				&& Objects.equals(testView.id(), testId)) {
+				testsTree.setSelectionPath(new TreePath(child.getPath()));
+				return;
+			}
+		}
+		if (testsRootNode.getChildCount() > 0) {
+			DefaultMutableTreeNode child = (DefaultMutableTreeNode) testsRootNode.getChildAt(0);
+			testsTree.setSelectionPath(new TreePath(child.getPath()));
+		}
+	}
+
+	private void selectTestFromTree() {
+		RequestTestTreeRenderer.TestView test = selectedTestView();
+		if (test == null || activeNode == null) {
+			return;
+		}
+		String nextTestId = test.base() ? null : test.id();
+		if (Objects.equals(activeTestId, nextTestId)) {
+			return;
+		}
+		saveActive();
+		activeTestId = nextTestId;
+		loadActiveTestSnapshot();
+	}
+
+	private void loadActiveTestSnapshot() {
+		if (activeNode == null) {
+			return;
+		}
+		RequestDetailsState details = stateService.getRequestDetails(activeNode.id);
+		RequestStatusState status = stateService.getRequestStatus(activeNode.id);
+		RequestTestState test = findTest(status, activeTestId);
+		isLoading = true;
+		try {
+			if (test == null) {
+				loadSharedStatus(status);
+				formDataTableModel.setEntries(status != null ? status.formData : List.of());
+				binaryFileField.setText(status != null ? safe(status.binaryFilePath) : "");
+				headersTableModel.setHeaders(status != null ? status.requestHeaders : List.of(), activeNode.requestType != RequestType.GRPC);
+				List<HeaderEntryState> params = status != null ? status.requestParams : List.of();
+				if (activeNode.requestType == RequestType.HTTP) {
+					params = UrlParamUtils.mergeParamsWithUrl(params, details != null ? details.url : null);
+				}
+				paramsTableModel.setHeaders(params, true);
+			} else {
+				applyTestSnapshot(test, details);
+			}
+		} finally {
+			isLoading = false;
+		}
+	}
+
+	private void applyTestSnapshot(RequestTestState test, RequestDetailsState details) {
+		requestBodyArea.setText(safe(test.requestBody));
+		beforeScriptArea.setText(safe(test.beforeScript));
+		afterScriptArea.setText(safe(test.afterScript));
+		formDataTableModel.setEntries(test.formData == null ? List.of() : test.formData);
+		binaryFileField.setText(safe(test.binaryFilePath));
+		headersTableModel.setHeaders(test.requestHeaders == null ? List.of() : test.requestHeaders, activeNode.requestType != RequestType.GRPC);
+		List<HeaderEntryState> params = test.requestParams == null ? List.of() : test.requestParams;
+		if (activeNode.requestType == RequestType.HTTP) {
+			params = UrlParamUtils.mergeParamsWithUrl(params, details != null ? details.url : null);
+		}
+		paramsTableModel.setHeaders(params, true);
+		responseViewer.setContent(
+			safe(test.responseBody),
+			safe(test.responseHeaders),
+			safe(test.responseCookies),
+			safe(test.logs)
+		);
+	}
+
+	private void createTest() {
+		if (activeNode == null || activeNode.type != NodeType.REQUEST) {
+			return;
+		}
+		saveActive();
+		String name = TaskbarWindowSupport.showInputDialog(root, "Test name:", "Create Test", "");
+		if (name == null || name.isBlank()) {
+			return;
+		}
+		RequestStatusState status = stateService.getRequestStatus(activeNode.id);
+		if (status == null) {
+			status = buildStatus(activeNode.id);
+		}
+		if (status.tests == null) {
+			status.tests = new ArrayList<>();
+		}
+		RequestTestState test = cloneBaseAsTest(status);
+		test.id = UUID.randomUUID().toString();
+		test.name = name.trim();
+		status.tests.add(test);
+		stateService.saveRequestStatus(status);
+		activeTestId = test.id;
+		rebuildTestsTree(status);
+		loadActiveTestSnapshot();
+	}
+
+	private void showTestsContextMenu(MouseEvent event) {
+		if (!event.isPopupTrigger()) {
+			return;
+		}
+		TreePath path = testsTree.getPathForLocation(event.getX(), event.getY());
+		if (path == null) {
+			return;
+		}
+		testsTree.setSelectionPath(path);
+		RequestTestTreeRenderer.TestView test = selectedTestView();
+		if (test == null || test.base()) {
+			return;
+		}
+		JPopupMenu menu = new JPopupMenu();
+		JMenuItem toggleDisabled = new JMenuItem(test.disabled() ? "Enable" : "Disable");
+		JMenuItem delete = new JMenuItem("Delete");
+		toggleDisabled.addActionListener(e -> toggleSelectedTestDisabled());
+		delete.addActionListener(e -> deleteSelectedTest());
+		menu.add(toggleDisabled);
+		menu.add(delete);
+		menu.show(testsTree, event.getX(), event.getY());
+	}
+
+	private RequestTestTreeRenderer.TestView selectedTestView() {
+		TreePath path = testsTree.getSelectionPath();
+		if (path == null || !(path.getLastPathComponent() instanceof DefaultMutableTreeNode node)) {
+			return null;
+		}
+		Object value = node.getUserObject();
+		return value instanceof RequestTestTreeRenderer.TestView test ? test : null;
+	}
+
+	private void deleteSelectedTest() {
+		RequestTestTreeRenderer.TestView selected = selectedTestView();
+		if (selected == null || selected.base() || activeNode == null) {
+			return;
+		}
+		saveActive();
+		RequestStatusState status = stateService.getRequestStatus(activeNode.id);
+		if (status == null || status.tests == null) {
+			return;
+		}
+		status.tests.removeIf(test -> test != null && Objects.equals(test.id, selected.id()));
+		if (Objects.equals(activeTestId, selected.id())) {
+			activeTestId = null;
+		}
+		stateService.saveRequestStatus(status);
+		rebuildTestsTree(status);
+		loadActiveTestSnapshot();
+	}
+
+	private void toggleSelectedTestDisabled() {
+		RequestTestTreeRenderer.TestView selected = selectedTestView();
+		if (selected == null || selected.base() || activeNode == null) {
+			return;
+		}
+		saveActive();
+		RequestStatusState status = stateService.getRequestStatus(activeNode.id);
+		RequestTestState test = findTest(status, selected.id());
+		if (test == null) {
+			return;
+		}
+		test.disabled = !test.disabled;
+		stateService.saveRequestStatus(status);
+		rebuildTestsTree(status);
 	}
 
 	private JPanel buildHttpTopBar() {
@@ -887,7 +1129,7 @@ public final class RequestEditorPanel {
 	private File chooseFile(String title) {
 		JFileChooser chooser = new JFileChooser();
 		chooser.setDialogTitle(title);
-		return chooser.showOpenDialog(root) == JFileChooser.APPROVE_OPTION ? chooser.getSelectedFile() : null;
+		return TaskbarWindowSupport.showOpenDialog(chooser, root) == JFileChooser.APPROVE_OPTION ? chooser.getSelectedFile() : null;
 	}
 
 	private void configureHeadersTableColumns() {
@@ -1025,6 +1267,7 @@ public final class RequestEditorPanel {
 
 	public void load(NodeState node) {
 		this.activeNode = node;
+		this.activeTestId = null;
 		if (node == null) {
 			return;
 		}
@@ -1043,6 +1286,7 @@ public final class RequestEditorPanel {
 			loadKafkaListen(node);
 			requestTopCards.show(requestTopPanel, "kafkaListen");
 		}
+		rebuildTestsTree(stateService.getRequestStatus(node.id));
 	}
 
 	private void loadHttp(String requestId) {
@@ -1253,8 +1497,61 @@ public final class RequestEditorPanel {
 	}
 
 	private RequestStatusState buildStatus(String requestId) {
-		RequestStatusState status = new RequestStatusState();
+		RequestStatusState existing = stateService.getRequestStatus(requestId);
+		RequestStatusState status = copyBaseStatus(existing, requestId);
 		status.requestId = requestId;
+		if (activeTestId == null) {
+			writeEditorSnapshotToBase(status);
+		} else {
+			RequestTestState test = findTest(status, activeTestId);
+			if (test != null) {
+				writeEditorSnapshotToTest(test);
+			}
+		}
+		stressSettingsPanel.saveTo(status);
+		return status;
+	}
+
+	private RequestStatusState copyBaseStatus(RequestStatusState source, String requestId) {
+		RequestStatusState copy = new RequestStatusState();
+		copy.requestId = requestId;
+		if (source == null) {
+			return copy;
+		}
+		copy.requestBody = source.requestBody;
+		copy.requestHeaders = cloneHeaders(source.requestHeaders);
+		copy.requestParams = cloneHeaders(source.requestParams);
+		copy.formData = cloneFormData(source.formData);
+		copy.binaryFilePath = source.binaryFilePath;
+		copy.responseBody = source.responseBody;
+		copy.responseHeaders = source.responseHeaders;
+		copy.responseCookies = source.responseCookies;
+		copy.logs = source.logs;
+		copy.resultStatus = source.resultStatus;
+		copy.resultDetails = source.resultDetails;
+		copy.beforeScript = source.beforeScript;
+		copy.afterScript = source.afterScript;
+		copy.tests = cloneTests(source.tests);
+		copy.kafkaKeyType = source.kafkaKeyType;
+		copy.kafkaBodyType = source.kafkaBodyType;
+		copy.kafkaPartitions = source.kafkaPartitions;
+		copy.kafkaOffsetStrategy = source.kafkaOffsetStrategy;
+		copy.stressEnabled = source.stressEnabled;
+		copy.stressRequestsPerSec = source.stressRequestsPerSec;
+		copy.stressTotalDuration = source.stressTotalDuration;
+		copy.stressTotalDurationUnit = source.stressTotalDurationUnit;
+		copy.stressNumberOfRequests = source.stressNumberOfRequests;
+		copy.stressParallelWorkers = source.stressParallelWorkers;
+		copy.stressRampUpTime = source.stressRampUpTime;
+		copy.stressRampUpTimeUnit = source.stressRampUpTimeUnit;
+		copy.stressDelayBetweenRequests = source.stressDelayBetweenRequests;
+		copy.stressDelayBetweenRequestsUnit = source.stressDelayBetweenRequestsUnit;
+		copy.stressJitterFrom = source.stressJitterFrom;
+		copy.stressJitterTo = source.stressJitterTo;
+		return copy;
+	}
+
+	private void writeEditorSnapshotToBase(RequestStatusState status) {
 		status.requestBody = requestBodyArea.getText();
 		status.requestHeaders = headersTableModel.getHeaders();
 		status.requestParams = paramsTableModel.getHeaders();
@@ -1266,8 +1563,382 @@ public final class RequestEditorPanel {
 		status.logs = responseViewer.getLogs();
 		status.beforeScript = beforeScriptArea.getText();
 		status.afterScript = afterScriptArea.getText();
-		stressSettingsPanel.saveTo(status);
-		return status;
+	}
+
+	private void writeEditorSnapshotToTest(RequestTestState test) {
+		test.requestBody = requestBodyArea.getText();
+		test.requestHeaders = headersTableModel.getHeaders();
+		test.requestParams = paramsTableModel.getHeaders();
+		test.formData = formDataTableModel.getEntries();
+		test.binaryFilePath = binaryFileField.getText();
+		test.responseBody = responseViewer.getResponseBody();
+		test.responseHeaders = responseViewer.getResponseHeaders();
+		test.responseCookies = responseViewer.getResponseCookies();
+		test.logs = responseViewer.getLogs();
+		test.beforeScript = beforeScriptArea.getText();
+		test.afterScript = afterScriptArea.getText();
+	}
+
+	private RequestTestState cloneBaseAsTest(RequestStatusState status) {
+		RequestTestState test = new RequestTestState();
+		test.requestBody = status == null ? "" : safe(status.requestBody);
+		test.requestHeaders = status == null ? new ArrayList<>() : cloneHeaders(status.requestHeaders);
+		test.requestParams = status == null ? new ArrayList<>() : cloneHeaders(status.requestParams);
+		test.formData = status == null ? new ArrayList<>() : cloneFormData(status.formData);
+		test.binaryFilePath = status == null ? "" : safe(status.binaryFilePath);
+		test.beforeScript = status == null ? "" : safe(status.beforeScript);
+		test.afterScript = status == null ? "" : safe(status.afterScript);
+		test.responseBody = "";
+		test.responseHeaders = "";
+		test.responseCookies = "";
+		test.logs = "";
+		return test;
+	}
+
+	private RequestStatusState activeStatusView(RequestStatusState status) {
+		if (status == null || activeTestId == null) {
+			return status;
+		}
+		RequestTestState test = findTest(status, activeTestId);
+		if (test == null) {
+			return status;
+		}
+		RequestStatusState view = copyBaseStatus(status, status.requestId);
+		view.requestBody = test.requestBody;
+		view.requestHeaders = cloneHeaders(test.requestHeaders);
+		view.requestParams = cloneHeaders(test.requestParams);
+		view.formData = cloneFormData(test.formData);
+		view.binaryFilePath = test.binaryFilePath;
+		view.responseBody = test.responseBody;
+		view.responseHeaders = test.responseHeaders;
+		view.responseCookies = test.responseCookies;
+		view.logs = test.logs;
+		view.beforeScript = test.beforeScript;
+		view.afterScript = test.afterScript;
+		return view;
+	}
+
+	private RequestTestState findTest(RequestStatusState status, String testId) {
+		if (status == null || testId == null || status.tests == null) {
+			return null;
+		}
+		for (RequestTestState test : status.tests) {
+			if (test != null && Objects.equals(test.id, testId)) {
+				return test;
+			}
+		}
+		return null;
+	}
+
+	private List<RequestTestState> cloneTests(List<RequestTestState> tests) {
+		List<RequestTestState> copy = new ArrayList<>();
+		if (tests == null) {
+			return copy;
+		}
+		for (RequestTestState test : tests) {
+			if (test == null) {
+				continue;
+			}
+			RequestTestState clone = new RequestTestState();
+			clone.id = test.id;
+			clone.name = test.name;
+			clone.disabled = test.disabled;
+			clone.resultStatus = test.resultStatus;
+			clone.resultDetails = test.resultDetails;
+			clone.requestBody = test.requestBody;
+			clone.requestHeaders = cloneHeaders(test.requestHeaders);
+			clone.requestParams = cloneHeaders(test.requestParams);
+			clone.formData = cloneFormData(test.formData);
+			clone.binaryFilePath = test.binaryFilePath;
+			clone.beforeScript = test.beforeScript;
+			clone.afterScript = test.afterScript;
+			clone.responseBody = test.responseBody;
+			clone.responseHeaders = test.responseHeaders;
+			clone.responseCookies = test.responseCookies;
+			clone.logs = test.logs;
+			copy.add(clone);
+		}
+		return copy;
+	}
+
+	private List<HeaderEntryState> cloneHeaders(List<HeaderEntryState> headers) {
+		List<HeaderEntryState> copy = new ArrayList<>();
+		if (headers == null) {
+			return copy;
+		}
+		for (HeaderEntryState header : headers) {
+			if (header == null) {
+				continue;
+			}
+			HeaderEntryState clone = new HeaderEntryState();
+			clone.id = header.id;
+			clone.name = header.name;
+			clone.value = header.value;
+			clone.enabled = header.enabled;
+			copy.add(clone);
+		}
+		return copy;
+	}
+
+	private List<FormEntryState> cloneFormData(List<FormEntryState> entries) {
+		List<FormEntryState> copy = new ArrayList<>();
+		if (entries == null) {
+			return copy;
+		}
+		for (FormEntryState entry : entries) {
+			if (entry == null) {
+				continue;
+			}
+			FormEntryState clone = new FormEntryState();
+			clone.id = entry.id;
+			clone.name = entry.name;
+			clone.value = entry.value;
+			clone.enabled = entry.enabled;
+			clone.file = entry.file;
+			copy.add(clone);
+		}
+		return copy;
+	}
+
+	private boolean isActiveTestDisabled() {
+		if (activeNode == null || activeTestId == null) {
+			return false;
+		}
+		RequestTestState test = findTest(stateService.getRequestStatus(activeNode.id), activeTestId);
+		return test != null && test.disabled;
+	}
+
+	private void updateActiveTestResult(ExecutionResult result) {
+		if (activeNode == null || result == null) {
+			return;
+		}
+		updateTestResult(activeNode.id, activeTestId, result);
+	}
+
+	private void updateTestResult(String requestId, String testId, ExecutionResult result) {
+		if (requestId == null || result == null) {
+			return;
+		}
+		RequestStatusState status = stateService.getRequestStatus(activeNode.id);
+		if (status == null) {
+			return;
+		}
+		String resultStatus = resolveTestResultStatus(result);
+		String details = result.statusCode + " | " + formatDuration(result.durationMillis) + " | " +
+			formatSize(responseBodySize(result.responseBody));
+		if (testId == null) {
+			status.resultStatus = resultStatus;
+			status.resultDetails = details;
+			status.responseBody = result.responseBody;
+			status.responseHeaders = result.responseHeaders;
+			status.responseCookies = result.responseCookies;
+			status.logs = result.logs;
+		} else {
+			RequestTestState test = findTest(status, testId);
+			if (test == null) {
+				return;
+			}
+			test.resultStatus = resultStatus;
+			test.resultDetails = details;
+			test.responseBody = result.responseBody;
+			test.responseHeaders = result.responseHeaders;
+			test.responseCookies = result.responseCookies;
+			test.logs = result.logs;
+		}
+		stateService.saveRequestStatus(status);
+		rebuildTestsTree(status);
+	}
+
+	private String resolveTestResultStatus(ExecutionResult result) {
+		if (result.logs != null && result.logs.contains("Assertion failed")) {
+			return "Failed";
+		}
+		return result.statusCode >= 200 && result.statusCode < 300 ? "Passed" : "Failed";
+	}
+
+	private String formatDuration(long durationMillis) {
+		return durationMillis < 0 ? "n/a" : durationMillis + " ms";
+	}
+
+	private int responseBodySize(String responseBody) {
+		return responseBody == null ? 0 : responseBody.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+	}
+
+	private String formatSize(int bytes) {
+		if (bytes < 1024) {
+			return bytes + " B";
+		}
+		double kib = bytes / 1024.0;
+		if (kib < 1024) {
+			return String.format("%.1f KB", kib);
+		}
+		return String.format("%.1f MB", kib / 1024.0);
+	}
+
+	private void runAllTests() {
+		if (activeNode == null || activeNode.type != NodeType.REQUEST) {
+			return;
+		}
+		if (activeNode.requestType == RequestType.KAFKA_LISTEN) {
+			responseViewer.showLog("Tests run is not available for Kafka listeners.");
+			return;
+		}
+		if (activeExecution != null && !activeExecution.isDone()) {
+			return;
+		}
+		saveActive();
+		NodeState node = activeNode;
+		RequestDetailsState details = stateService.getRequestDetails(node.id);
+		RequestStatusState status = stateService.getRequestStatus(node.id);
+		List<TestRunTarget> targets = buildTestRunTargets(status);
+		if (targets.isEmpty()) {
+			responseViewer.showLog("No enabled tests to run.");
+			return;
+		}
+		responseViewer.clearStatus();
+		runRequestInBackground(() -> runTestTargets(node, details, targets));
+	}
+
+	private List<TestRunTarget> buildTestRunTargets(RequestStatusState status) {
+		List<TestRunTarget> targets = new ArrayList<>();
+		if (status == null) {
+			return targets;
+		}
+		targets.add(new TestRunTarget(null, "Base", copyBaseStatus(status, status.requestId)));
+		if (status.tests != null) {
+			for (RequestTestState test : status.tests) {
+				if (test == null || test.disabled) {
+					continue;
+				}
+				targets.add(new TestRunTarget(test.id, safe(test.name), statusViewForTest(status, test)));
+			}
+		}
+		return targets;
+	}
+
+	private RequestStatusState statusViewForTest(RequestStatusState base, RequestTestState test) {
+		RequestStatusState view = copyBaseStatus(base, base.requestId);
+		view.requestBody = test.requestBody;
+		view.requestHeaders = cloneHeaders(test.requestHeaders);
+		view.requestParams = cloneHeaders(test.requestParams);
+		view.formData = cloneFormData(test.formData);
+		view.binaryFilePath = test.binaryFilePath;
+		view.responseBody = test.responseBody;
+		view.responseHeaders = test.responseHeaders;
+		view.responseCookies = test.responseCookies;
+		view.logs = test.logs;
+		view.beforeScript = test.beforeScript;
+		view.afterScript = test.afterScript;
+		return view;
+	}
+
+	private void runTestTargets(
+		NodeState node,
+		RequestDetailsState details,
+		List<TestRunTarget> targets
+	) {
+		int completed = 0;
+		for (TestRunTarget target : targets) {
+			if (Thread.currentThread().isInterrupted()) {
+				return;
+			}
+			ExecutionResult result = executeTestTarget(node, details, target.status);
+			if (result == null) {
+				continue;
+			}
+			completed++;
+			invokeLater(() -> {
+				updateTestResult(node.id, target.testId, result);
+				if (Objects.equals(activeTestId, target.testId)) {
+					responseViewer.updateResponse(result, node.requestType == RequestType.GRPC);
+				}
+			});
+		}
+		int total = targets.size();
+		int done = completed;
+		invokeLater(() -> responseViewer.showLog("Tests completed: " + done + "/" + total + "."));
+	}
+
+	private ExecutionResult executeTestTarget(
+		NodeState node,
+		RequestDetailsState details,
+		RequestStatusState status
+	) {
+		if (node.requestType == RequestType.HTTP) {
+			return executeHttpTestTarget(details, status);
+		}
+		if (node.requestType == RequestType.GRPC) {
+			return executeGrpcTestTarget(details, status);
+		}
+		if (node.requestType == RequestType.KAFKA) {
+			return executeKafkaTestTarget(details, status);
+		}
+		return ExecutionResult.failure(List.of("Unsupported request type for tests: " + node.requestType));
+	}
+
+	private ExecutionResult executeHttpTestTarget(RequestDetailsState details, RequestStatusState status) {
+		if (details == null || details.url == null || details.url.isBlank()) {
+			return ExecutionResult.failure(List.of("Missing URL."));
+		}
+		HttpExecutionContext context = new HttpExecutionContext(
+			details.method == null ? "GET" : details.method,
+			details.url,
+			status != null ? status.requestHeaders : List.of(),
+			status != null ? status.requestParams : List.of(),
+			status != null ? status.requestBody : "",
+			status != null ? status.beforeScript : "",
+			status != null ? status.afterScript : "",
+			details.payloadType == null ? "RAW" : details.payloadType,
+			status != null ? status.formData : List.of(),
+			status != null ? status.binaryFilePath : "",
+			requestTimeout(details)
+		);
+		return executionService.executeWithScripts(
+			context.method, context.url, context.headers, context.params, context.body, context.before,
+			context.after, false, null, context.payloadType, context.formData, context.binaryFilePath,
+			context.timeoutMillis
+		);
+	}
+
+	private ExecutionResult executeGrpcTestTarget(RequestDetailsState details, RequestStatusState status) {
+		if (details == null || details.target == null || details.target.isBlank()) {
+			return ExecutionResult.failure(List.of("Missing gRPC target."));
+		}
+		if (details.service == null || details.service.isBlank() || details.grpcMethod == null ||
+			details.grpcMethod.isBlank()) {
+			return ExecutionResult.failure(List.of("Missing gRPC service or method."));
+		}
+		return executionService.executeGrpcWithScripts(
+			details,
+			status != null ? status.requestHeaders : List.of(),
+			status != null ? status.requestParams : List.of(),
+			status != null ? status.requestBody : "",
+			status != null ? status.beforeScript : "",
+			status != null ? status.afterScript : "",
+			null,
+			requestTimeout(details)
+		);
+	}
+
+	private ExecutionResult executeKafkaTestTarget(RequestDetailsState details, RequestStatusState status) {
+		if (details == null || details.kafkaBootstrapServers == null || details.kafkaBootstrapServers.isBlank()) {
+			return ExecutionResult.failure(List.of("Missing Kafka bootstrap servers."));
+		}
+		if (details.kafkaTopic == null || details.kafkaTopic.isBlank()) {
+			return ExecutionResult.failure(List.of("Missing Kafka topic."));
+		}
+		return executionService.executeKafkaWithScripts(
+			details,
+			status != null ? status.requestHeaders : List.of(),
+			status != null ? status.requestBody : "",
+			status != null ? status.beforeScript : "",
+			status != null ? status.afterScript : "",
+			status != null && status.kafkaKeyType != null ? status.kafkaKeyType : "String",
+			status != null && status.kafkaBodyType != null ? status.kafkaBodyType : "JSON",
+			status != null ? status.kafkaPartitions : "",
+			null,
+			requestTimeout(details)
+		);
 	}
 
 	private record HttpExecutionContext(
@@ -1285,9 +1956,20 @@ public final class RequestEditorPanel {
 	) {
 	}
 
+	private record TestRunTarget(
+		String testId,
+		String name,
+		RequestStatusState status
+	) {
+	}
+
 	// ---- execution ----
 
 	public void executeHttp() {
+		if (isActiveTestDisabled()) {
+			responseViewer.showLog("Selected test is disabled.");
+			return;
+		}
 		HttpExecutionContext context = prepareHttpExecution();
 		if (context == null) {
 			return;
@@ -1303,6 +1985,7 @@ public final class RequestEditorPanel {
 			runRequestInBackground(() -> {
 				ExecutionResult result = httpStressExecutionService.execute(toStressRequest(context), stressConfig);
 				if (result != null && !Thread.currentThread().isInterrupted()) {
+					invokeLater(() -> updateActiveTestResult(result));
 					responseViewer.updateResponse(result, false);
 				}
 			});
@@ -1317,6 +2000,7 @@ public final class RequestEditorPanel {
 			if (Thread.currentThread().isInterrupted()) {
 				return;
 			}
+			invokeLater(() -> updateActiveTestResult(result));
 			responseViewer.updateResponse(result, false);
 		});
 	}
@@ -1395,6 +2079,10 @@ public final class RequestEditorPanel {
 	}
 
 	private void executeHttpDownload() {
+		if (isActiveTestDisabled()) {
+			responseViewer.showLog("Selected test is disabled.");
+			return;
+		}
 		HttpExecutionContext context = prepareHttpExecution();
 		if (context == null) {
 			return;
@@ -1409,6 +2097,7 @@ public final class RequestEditorPanel {
 			if (Thread.currentThread().isInterrupted()) {
 				return;
 			}
+			invokeLater(() -> updateActiveTestResult(result.result));
 			responseViewer.updateResponse(result.result, false);
 			if (result.bodyBytes != null) {
 				invokeLater(() -> responseViewer.promptSaveDownload(result, root));
@@ -1426,7 +2115,7 @@ public final class RequestEditorPanel {
 			responseViewer.showLog("Missing URL.");
 			return null;
 		}
-		RequestStatusState status = stateService.getRequestStatus(activeNode.id);
+		RequestStatusState status = activeStatusView(stateService.getRequestStatus(activeNode.id));
 		return new HttpExecutionContext(
 			details.method == null ? "GET" : details.method,
 			details.url,
@@ -1446,6 +2135,10 @@ public final class RequestEditorPanel {
 		if (activeNode == null || activeNode.requestType != RequestType.GRPC) {
 			return;
 		}
+		if (isActiveTestDisabled()) {
+			responseViewer.showLog("Selected test is disabled.");
+			return;
+		}
 		if (activeGrpcClientStream != null) {
 			sendGrpcClientStreamMessage();
 			return;
@@ -1461,7 +2154,7 @@ public final class RequestEditorPanel {
 			responseViewer.showLog("Missing gRPC service or method.");
 			return;
 		}
-		RequestStatusState status = stateService.getRequestStatus(activeNode.id);
+		RequestStatusState status = activeStatusView(stateService.getRequestStatus(activeNode.id));
 		List<HeaderEntryState> headers = status != null ? status.requestHeaders : List.of();
 		List<HeaderEntryState> params = status != null ? status.requestParams : List.of();
 		String body = status != null ? status.requestBody : "";
@@ -1538,6 +2231,7 @@ public final class RequestEditorPanel {
 			if (Thread.currentThread().isInterrupted()) {
 				return;
 			}
+			invokeLater(() -> updateActiveTestResult(result));
 			responseViewer.updateResponse(result, true);
 		});
 	}
@@ -1551,7 +2245,7 @@ public final class RequestEditorPanel {
 			return;
 		}
 		saveActive();
-		RequestStatusState status = stateService.getRequestStatus(activeNode.id);
+		RequestStatusState status = activeStatusView(stateService.getRequestStatus(activeNode.id));
 		String body = status == null ? "" : status.requestBody;
 		grpcSendButton.setEnabled(false);
 		activeExecution = ApplicationManager.getApplication().executeOnPooledThread(() -> {
@@ -1607,6 +2301,10 @@ public final class RequestEditorPanel {
 		if (activeNode == null || activeNode.requestType != RequestType.KAFKA) {
 			return;
 		}
+		if (isActiveTestDisabled()) {
+			responseViewer.showLog("Selected test is disabled.");
+			return;
+		}
 		saveActive();
 		RequestDetailsState details = stateService.getRequestDetails(activeNode.id);
 		if (details == null || details.kafkaBootstrapServers == null || details.kafkaBootstrapServers.isBlank()) {
@@ -1617,7 +2315,7 @@ public final class RequestEditorPanel {
 			responseViewer.showLog("Missing Kafka topic.");
 			return;
 		}
-		RequestStatusState status = stateService.getRequestStatus(activeNode.id);
+		RequestStatusState status = activeStatusView(stateService.getRequestStatus(activeNode.id));
 		List<HeaderEntryState> headers = status != null ? status.requestHeaders : List.of();
 		String body = status != null ? status.requestBody : "";
 		String before = status != null ? status.beforeScript : "";
@@ -1643,6 +2341,7 @@ public final class RequestEditorPanel {
 			if (Thread.currentThread().isInterrupted()) {
 				return;
 			}
+			invokeLater(() -> updateActiveTestResult(result));
 			responseViewer.updateResponse(result, false);
 		});
 	}
@@ -2191,7 +2890,8 @@ public final class RequestEditorPanel {
 	}
 
 	private void syncUrlFromParamsTable() {
-		if (isLoading || isSyncingParamsFromUrl || activeNode == null || activeNode.requestType != RequestType.HTTP) {
+		if (isLoading || isSyncingParamsFromUrl || activeNode == null || activeNode.requestType != RequestType.HTTP
+			|| activeTestId != null) {
 			return;
 		}
 		String currentUrl = httpUrlField.getText();
@@ -2329,12 +3029,10 @@ public final class RequestEditorPanel {
 	}
 
 	private void showEditorDialog(String title, JComponent content) {
-		JDialog dialog = new JDialog();
-		dialog.setTitle(title);
+		JFrame dialog = TaskbarWindowSupport.createFrame(title, root);
 		dialog.getContentPane().add(content);
 		dialog.setSize(900, 700);
 		dialog.setLocationRelativeTo(root);
-		dialog.setModal(false);
 		dialog.setVisible(true);
 	}
 
