@@ -43,4 +43,4 @@ you need to move requests between projects or external tools.
 - IntelliJ IDEA 2024.2+ / platform build 242.
 - For plugin development: JDK and Gradle wrapper from this repository.
 
-Navigation: [README](../README.md) | [Code map](../CODE.md)
+Navigation: [README](../README.md) | [Code map](../CODE_MAP)

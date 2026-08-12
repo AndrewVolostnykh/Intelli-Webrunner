@@ -228,6 +228,19 @@ public final class UrlParamUtils {
 		return merged;
 	}
 
+	public static List<HeaderEntryState> queryParamsFromUrl(String url) {
+		return parseQueryParams(url);
+	}
+
+	public static boolean hasQuery(String url) {
+		if (url == null) {
+			return false;
+		}
+		int hashIndex = url.indexOf('#');
+		int queryIndex = url.indexOf('?');
+		return queryIndex >= 0 && (hashIndex < 0 || queryIndex < hashIndex);
+	}
+
 	public static HeaderEntryState findParamByName(
 		List<HeaderEntryState> params,
 		String name

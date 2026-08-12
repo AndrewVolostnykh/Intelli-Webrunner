@@ -137,6 +137,7 @@ public final class RequestEditorPanel {
 	private boolean isLoading = false;
 	private boolean isStoppingTableEditing = false;
 	private boolean isSyncingParamsFromUrl = false;
+	private boolean isSyncingUrlFromParams = false;
 	private final javax.swing.Timer urlParamSyncTimer;
 
 	private final JComboBox<String> httpMethodCombo =
@@ -528,7 +529,7 @@ public final class RequestEditorPanel {
 				headersTableModel.setHeaders(status != null ? status.requestHeaders : List.of(), activeNode.requestType != RequestType.GRPC);
 				List<HeaderEntryState> params = status != null ? status.requestParams : List.of();
 				if (activeNode.requestType == RequestType.HTTP) {
-					params = UrlParamUtils.mergeParamsWithUrl(params, details != null ? details.url : null);
+					params = paramsForHttpUrl(params, details != null ? details.url : null);
 				}
 				paramsTableModel.setHeaders(params, true);
 			} else {
@@ -547,8 +548,8 @@ public final class RequestEditorPanel {
 		binaryFileField.setText(safe(test.binaryFilePath));
 		headersTableModel.setHeaders(test.requestHeaders == null ? List.of() : test.requestHeaders, activeNode.requestType != RequestType.GRPC);
 		List<HeaderEntryState> params = test.requestParams == null ? List.of() : test.requestParams;
-		if (activeNode.requestType == RequestType.HTTP) {
-			params = UrlParamUtils.mergeParamsWithUrl(params, details != null ? details.url : null);
+		if (activeNode.requestType == RequestType.HTTP && params.isEmpty()) {
+			params = paramsForHttpUrl(params, details != null ? details.url : null);
 		}
 		paramsTableModel.setHeaders(params, true);
 		responseViewer.setContent(
@@ -1303,8 +1304,7 @@ public final class RequestEditorPanel {
 		binaryFileField.setText(status != null ? safe(status.binaryFilePath) : "");
 		headersTableModel.setHeaders(status != null ? status.requestHeaders : List.of(), true);
 		List<HeaderEntryState> mergedParams =
-			UrlParamUtils.mergeParamsWithUrl(status != null ? status.requestParams : List.of(),
-				details != null ? details.url : null);
+			paramsForHttpUrl(status != null ? status.requestParams : List.of(), details != null ? details.url : null);
 		paramsTableModel.setHeaders(mergedParams, true);
 		paramsCards.show(paramsPanel, "table");
 		stressSettingsPanel.showFor(RequestType.HTTP);
@@ -2807,7 +2807,7 @@ public final class RequestEditorPanel {
 	// ---- auto-save / sync ----
 
 	private void attachAutoSaveListeners() {
-		httpUrlField.getDocument().addDocumentListener(new AutoSaveListener());
+		httpUrlField.getDocument().addDocumentListener(new UrlAutoSaveListener());
 		httpUrlField.addFocusListener(new FocusAdapter() {
 			@Override
 			public void focusLost(FocusEvent e) {
@@ -2897,21 +2897,32 @@ public final class RequestEditorPanel {
 		String currentUrl = httpUrlField.getText();
 		String updatedUrl = UrlParamUtils.replaceQueryParams(currentUrl, paramsTableModel.getHeaders());
 		if (!Objects.equals(currentUrl, updatedUrl)) {
-			httpUrlField.setText(updatedUrl);
+			isSyncingUrlFromParams = true;
+			try {
+				httpUrlField.setText(updatedUrl);
+			} finally {
+				isSyncingUrlFromParams = false;
+			}
 		}
 	}
 
 	private void syncParamsFromUrlField() {
-		if (isLoading || isSyncingParamsFromUrl || activeNode == null || activeNode.requestType != RequestType.HTTP) {
+		if (isLoading || isSyncingParamsFromUrl || isSyncingUrlFromParams || activeNode == null
+			|| activeNode.requestType != RequestType.HTTP) {
 			return;
 		}
-		List<HeaderEntryState> merged = UrlParamUtils.mergeParamsWithUrl(paramsTableModel.getHeaders(), httpUrlField.getText());
-		if (merged == null) {
+		if (activeTestId != null) {
+			return;
+		}
+		List<HeaderEntryState> params = UrlParamUtils.hasQuery(httpUrlField.getText())
+			? UrlParamUtils.queryParamsFromUrl(httpUrlField.getText())
+			: List.of();
+		if (sameParams(paramsTableModel.getHeaders(), params)) {
 			return;
 		}
 		isSyncingParamsFromUrl = true;
 		try {
-			paramsTableModel.setHeaders(merged, true);
+			paramsTableModel.setHeaders(params, true);
 		} finally {
 			isSyncingParamsFromUrl = false;
 		}
@@ -2919,10 +2930,44 @@ public final class RequestEditorPanel {
 	}
 
 	private void scheduleParamsSyncFromUrl() {
-		if (isLoading || isSyncingParamsFromUrl) {
+		if (isLoading || isSyncingParamsFromUrl || isSyncingUrlFromParams) {
 			return;
 		}
 		urlParamSyncTimer.restart();
+	}
+
+	private boolean sameParams(
+		List<HeaderEntryState> first,
+		List<HeaderEntryState> second
+	) {
+		List<HeaderEntryState> left = first == null ? List.of() : first;
+		List<HeaderEntryState> right = second == null ? List.of() : second;
+		if (left.size() != right.size()) {
+			return false;
+		}
+		for (int index = 0; index < left.size(); index++) {
+			HeaderEntryState a = left.get(index);
+			HeaderEntryState b = right.get(index);
+			if (a == null || b == null) {
+				if (a != b) {
+					return false;
+				}
+				continue;
+			}
+			if (a.enabled != b.enabled
+				|| !Objects.equals(safe(a.name), safe(b.name))
+				|| !Objects.equals(safe(a.value), safe(b.value))) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private List<HeaderEntryState> paramsForHttpUrl(
+		List<HeaderEntryState> storedParams,
+		String url
+	) {
+		return UrlParamUtils.hasQuery(url) ? UrlParamUtils.queryParamsFromUrl(url) : storedParams;
 	}
 
 	// ---- format ----
@@ -3160,6 +3205,29 @@ public final class RequestEditorPanel {
 		@Override
 		public void changedUpdate(javax.swing.event.DocumentEvent e) {
 			saveActive();
+		}
+	}
+
+	private final class UrlAutoSaveListener implements javax.swing.event.DocumentListener {
+
+		@Override
+		public void insertUpdate(javax.swing.event.DocumentEvent e) {
+			handleChange();
+		}
+
+		@Override
+		public void removeUpdate(javax.swing.event.DocumentEvent e) {
+			handleChange();
+		}
+
+		@Override
+		public void changedUpdate(javax.swing.event.DocumentEvent e) {
+			handleChange();
+		}
+
+		private void handleChange() {
+			saveActive();
+			scheduleParamsSyncFromUrl();
 		}
 	}
 

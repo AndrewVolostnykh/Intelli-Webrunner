@@ -11,7 +11,7 @@ placeholders, response viewing, import/export tools, and small developer utiliti
 - User docs start here: [docs/index.md](docs/index.md)
 - Import/export details: [docs/import-export.md](docs/import-export.md)
 - Scripting API: [docs/scripting.md](docs/scripting.md)
-- Internal code map for contributors: [CODE.md](CODE.md)
+- Internal code map for contributors: [CODE.md](CODE_MAP)
 
 ## Main features
 
@@ -81,5 +81,5 @@ Run in sandbox IDE:
 
 Before changing code, read:
 
-- [CODE.md](CODE.md) for project structure and implementation notes.
-- [tempLocal/REQUIREMENTS_TO_CODE.md](REQUIREMENTS_TO_CODE.md) for local code requirements.
+- [CODE.md](CODE_MAP) for project structure and implementation notes.
+- [tempLocal/REQUIREMENTS_TO_CODE.md](CONTRIBUTING) for local code requirements.
