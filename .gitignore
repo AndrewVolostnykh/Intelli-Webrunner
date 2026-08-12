@@ -1,5 +1,6 @@
 HELP.md
 .gradle
+.intellijPlatform
 build/
 **/src/generated/**
 !gradle/wrapper/gradle-wrapper.jar

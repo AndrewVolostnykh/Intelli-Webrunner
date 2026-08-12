@@ -4,13 +4,9 @@ import com.non_organic_onion.intelli.webrunner.execution.DownloadResult;
 import com.non_organic_onion.intelli.webrunner.execution.ExecutionResult;
 import com.non_organic_onion.intelli.webrunner.util.ContentDispositionUtils;
 import com.non_organic_onion.intelli.webrunner.util.HttpStatusReasons;
-import com.intellij.execution.filters.TextConsoleBuilderFactory;
-import com.intellij.execution.ui.ConsoleView;
-import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.json.JsonFileType;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
-import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.project.Project;
 import com.intellij.ui.EditorTextField;
 import com.intellij.ui.JBColor;
@@ -24,7 +20,6 @@ import javax.swing.JPanel;
 import javax.swing.JTabbedPane;
 import javax.swing.Timer;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Component;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -38,11 +33,6 @@ public final class ResponseViewerPanel {
 
 	private final Project project;
 	private final Runnable onResponsePersisted;
-	private static final ConsoleViewContentType WHITE_LOG_OUTPUT =
-		new ConsoleViewContentType(
-			"WEBRUNNER_WHITE_LOG_OUTPUT",
-			new TextAttributes(Color.WHITE, null, null, null, 0)
-		);
 
 	private final JTabbedPane responseTabs = new JTabbedPane();
 	private final JBLabel responseStatusLabel = new JBLabel("");
@@ -51,7 +41,7 @@ public final class ResponseViewerPanel {
 	private final EditorTextField responseHeadersArea;
 	private final EditorTextField responseCookiesArea;
 	private final JComponent responseCookiesComponent;
-	private final ConsoleView responseLogsArea;
+	private final LogViewerPanel responseLogsArea;
 	private final JPanel root = new JPanel(new BorderLayout());
 	private String responseLogsText = "";
 	private boolean responseCookiesVisible = true;
@@ -64,7 +54,7 @@ public final class ResponseViewerPanel {
 		this.responseBodyArea = EditorThemeSupport.configure(new EditorTextField("", project, JsonFileType.INSTANCE));
 		this.responseHeadersArea = EditorThemeSupport.configure(new EditorTextField("", project, JsonFileType.INSTANCE));
 		this.responseCookiesArea = EditorThemeSupport.configure(new EditorTextField("", project, JsonFileType.INSTANCE));
-		this.responseLogsArea = TextConsoleBuilderFactory.getInstance().createBuilder(project).getConsole();
+		this.responseLogsArea = new LogViewerPanel();
 		this.responseBodyArea.setOneLineMode(false);
 		this.responseHeadersArea.setOneLineMode(false);
 		this.responseCookiesArea.setOneLineMode(false);
@@ -251,7 +241,7 @@ public final class ResponseViewerPanel {
 				new EditorTextField(responseCookiesArea.getDocument(), project, JsonFileType.INSTANCE, false, false)
 			);
 		cookiesField.setOneLineMode(false);
-		ConsoleView logsArea = TextConsoleBuilderFactory.getInstance().createBuilder(project).getConsole();
+		LogViewerPanel logsArea = new LogViewerPanel();
 		printLogs(logsArea, responseLogsText);
 
 		tabs.add("Response", new JBScrollPane(bodyField));
@@ -274,24 +264,14 @@ public final class ResponseViewerPanel {
 	}
 
 	private void printLogs(
-		ConsoleView console,
+		LogViewerPanel logsPanel,
 		String logs
 	) {
-		console.clear();
-		if (logs == null || logs.isEmpty()) {
-			return;
-		}
-		String[] lines = logs.split("\\R", -1);
-		for (int i = 0; i < lines.length; i++) {
-			String line = lines[i];
-			ConsoleViewContentType type = line.contains("Assertion failed")
-				? ConsoleViewContentType.ERROR_OUTPUT
-				: WHITE_LOG_OUTPUT;
-			console.print(line, type);
-			if (i < lines.length - 1) {
-				console.print("\n", type);
-			}
-		}
+		logsPanel.setLogs(
+			logs,
+			line -> line != null && line.contains("Assertion failed") ? JBColor.RED : JBColor.foreground(),
+			line -> line
+		);
 	}
 
 	private static String formatDuration(long durationMillis) {

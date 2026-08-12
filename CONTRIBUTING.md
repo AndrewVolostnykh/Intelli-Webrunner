@@ -1,5 +1,34 @@
 # Plugin Development Requirements
 
+## Commit Messages
+
+This project follows the Conventional Commits specification.
+
+Format:
+
+`type(scope): description`
+
+Examples:
+
+- `feat(chaining): add scripting data for sent requests`
+- `fix(parser): handle empty response body`
+- `refactor(http): simplify request execution`
+- `docs(readme): add installation instructions`
+- `test(chaining): add request scripting tests`
+- `build(gradle): migrate to IntelliJ Platform Gradle Plugin 2.x`
+
+### Allowed Types
+
+- `feat` — new functionality
+- `fix` — bug fix
+- `refactor` — code changes without changing behavior
+- `docs` — documentation
+- `test` — tests
+- `build` — build system or dependencies
+- `ci` — CI/CD configuration
+- `chore` — maintenance tasks
+- `perf` — performance improvements
+
 ## 1. Architecture Requirements
 
 The plugin must be divided into logical layers: UI, business logic, IntelliJ Platform API integration, services, data models, and utilities.

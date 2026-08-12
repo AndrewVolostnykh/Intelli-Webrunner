@@ -18,14 +18,10 @@ import com.non_organic_onion.intelli.webrunner.state.RequestStatusState;
 import com.non_organic_onion.intelli.webrunner.state.RequestTestState;
 import com.non_organic_onion.intelli.webrunner.state.RequestType;
 import com.non_organic_onion.intelli.webrunner.util.JsonUtils;
-import com.intellij.execution.filters.TextConsoleBuilderFactory;
-import com.intellij.execution.ui.ConsoleView;
-import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.icons.AllIcons;
 import com.intellij.json.JsonFileType;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
-import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.fileTypes.PlainTextFileType;
@@ -108,7 +104,7 @@ public final class ChainEditorPanel {
 	private final JButton chainDebugButton = new JButton(AllIcons.Actions.StartDebugger);
 	private final JButton chainNextButton = new JButton(AllIcons.Actions.TraceOver);
 	private final JButton chainContextButton = new JButton(AllIcons.Nodes.Variable);
-	private final ConsoleView chainLogsArea;
+	private final LogViewerPanel chainLogsArea;
 	private final FileType scriptFileType;
 	private final EditorTextField chainCurrentStateArea;
 	private final JComboBox<String> chainSuccessCodesCombo =
@@ -140,21 +136,8 @@ public final class ChainEditorPanel {
 	private boolean isLoading = false;
 	private boolean isLoadingStep = false;
 	private static final Dimension ICON_BUTTON_SIZE = new Dimension(28, 28);
-	private static final ConsoleViewContentType WHITE_LOG_OUTPUT =
-		new ConsoleViewContentType(
-			"WEBRUNNER_CHAIN_WHITE_LOG_OUTPUT",
-			new TextAttributes(Color.WHITE, null, null, null, 0)
-		);
-	private static final ConsoleViewContentType SKIP_LOG_OUTPUT =
-		new ConsoleViewContentType(
-			"WEBRUNNER_CHAIN_SKIP_LOG_OUTPUT",
-			new TextAttributes(new JBColor(new Color(188, 112, 22), new Color(205, 132, 36)), null, null, null, 0)
-		);
-	private static final ConsoleViewContentType INTERRUPT_LOG_OUTPUT =
-		new ConsoleViewContentType(
-			"WEBRUNNER_CHAIN_INTERRUPT_LOG_OUTPUT",
-			new TextAttributes(new JBColor(new Color(190, 55, 55), new Color(214, 78, 78)), null, null, null, 0)
-		);
+	private static final JBColor SKIP_LOG_COLOR = new JBColor(new Color(188, 112, 22), new Color(205, 132, 36));
+	private static final JBColor INTERRUPT_LOG_COLOR = new JBColor(new Color(190, 55, 55), new Color(214, 78, 78));
 	private static final String SKIP_LOG_PREFIX = "[[WEBRUNNER_CHAIN_SKIP]]";
 	private static final String INTERRUPT_LOG_PREFIX = "[[WEBRUNNER_CHAIN_INTERRUPT]]";
 
@@ -169,7 +152,7 @@ public final class ChainEditorPanel {
 		this.executionService = executionService;
 		this.httpStressExecutionService = new HttpStressExecutionService(executionService);
 		this.onRequestsChanged = onRequestsChanged;
-		this.chainLogsArea = TextConsoleBuilderFactory.getInstance().createBuilder(project).getConsole();
+		this.chainLogsArea = new LogViewerPanel();
 		this.scriptFileType = resolveScriptFileType();
 		this.chainCurrentStateArea = EditorThemeSupport.configure(new EditorTextField("", project, JsonFileType.INSTANCE));
 		this.chainCurrentStateArea.setOneLineMode(false);
@@ -1657,35 +1640,23 @@ public final class ChainEditorPanel {
 	}
 
 	private void printChainLogs(
-		ConsoleView console,
+		LogViewerPanel logsPanel,
 		String logs
 	) {
-		console.clear();
-		if (logs == null || logs.isEmpty()) {
-			return;
-		}
-		String[] lines = logs.split("\\R", -1);
-		for (int i = 0; i < lines.length; i++) {
-			String line = lines[i];
-			ConsoleViewContentType type = chainLogType(line);
-			console.print(stripChainLogPrefix(line), type);
-			if (i < lines.length - 1) {
-				console.print("\n", type);
-			}
-		}
+		logsPanel.setLogs(logs, this::chainLogColor, this::stripChainLogPrefix);
 	}
 
-	private ConsoleViewContentType chainLogType(String line) {
+	private Color chainLogColor(String line) {
 		if (line == null) {
-			return WHITE_LOG_OUTPUT;
+			return JBColor.foreground();
 		}
 		if (line.startsWith(SKIP_LOG_PREFIX)) {
-			return SKIP_LOG_OUTPUT;
+			return SKIP_LOG_COLOR;
 		}
 		if (line.startsWith(INTERRUPT_LOG_PREFIX)) {
-			return INTERRUPT_LOG_OUTPUT;
+			return INTERRUPT_LOG_COLOR;
 		}
-		return line.contains("Assertion failed") ? ConsoleViewContentType.ERROR_OUTPUT : WHITE_LOG_OUTPUT;
+		return line.contains("Assertion failed") ? JBColor.RED : JBColor.foreground();
 	}
 
 	private String stripChainLogPrefix(String line) {
