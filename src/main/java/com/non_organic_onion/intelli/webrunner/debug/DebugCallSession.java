@@ -14,13 +14,13 @@ import com.non_organic_onion.intelli.webrunner.script.VarsStore;
 import com.non_organic_onion.intelli.webrunner.state.FormEntryState;
 import com.non_organic_onion.intelli.webrunner.state.GlobalWebrunnerStateService;
 import com.non_organic_onion.intelli.webrunner.state.HeaderEntryState;
+import com.non_organic_onion.intelli.webrunner.state.IntellijGlobalContextStore;
 import com.non_organic_onion.intelli.webrunner.state.NodeState;
 import com.non_organic_onion.intelli.webrunner.state.RequestDetailsState;
 import com.non_organic_onion.intelli.webrunner.state.RequestStatusState;
 import com.non_organic_onion.intelli.webrunner.state.RequestType;
 import com.non_organic_onion.intelli.webrunner.ui.TaskbarWindowSupport;
 import com.non_organic_onion.intelli.webrunner.util.HttpStatusReasons;
-import com.non_organic_onion.intelli.webrunner.util.JsonUtils;
 import com.non_organic_onion.intelli.webrunner.util.PayloadTypes;
 import com.non_organic_onion.intelli.webrunner.util.StateCopyUtils;
 import com.non_organic_onion.intelli.webrunner.util.TemplateEngine;
@@ -48,12 +48,9 @@ import java.awt.Insets;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Step-by-step request runner shown in its own non-modal dialog. Mirrors the normal execution
@@ -71,6 +68,8 @@ public final class DebugCallSession {
 	private final HttpExecutor httpExecutor;
 	private final GrpcExecutor grpcExecutor;
 	private final GlobalContextRuntime globalContextRuntime;
+	private final DebugStageFormatter stageFormatter = new DebugStageFormatter();
+	private final DebugRequestPolicy requestPolicy = new DebugRequestPolicy();
 
 	private final String requestId;
 	private final RequestType requestType;
@@ -154,7 +153,7 @@ public final class DebugCallSession {
 		this.templateEngine = templateEngine;
 		this.httpExecutor = httpExecutor;
 		this.grpcExecutor = grpcExecutor;
-		this.globalContextRuntime = new GlobalContextRuntime(stateService, scriptRuntime);
+		this.globalContextRuntime = new GlobalContextRuntime(new IntellijGlobalContextStore(stateService), scriptRuntime);
 		this.requestId = requestId;
 		this.requestType = requestType;
 		this.details = stateService.getRequestDetails(requestId);
@@ -375,7 +374,7 @@ public final class DebugCallSession {
 		}
 		List<String> scriptLogs =
 			logs.size() == logStart ? List.of() : new ArrayList<>(logs.subList(logStart, logs.size()));
-		lines.addAll(formatLogs("Inline script logs", scriptLogs));
+		lines.addAll(stageFormatter.formatLogs("Inline script logs", scriptLogs));
 		long duration = System.nanoTime() - start;
 		return new DebugStageResult("Inline Script", duration, lines, nextButton.isEnabled());
 	}
@@ -406,7 +405,7 @@ public final class DebugCallSession {
 			snapshot.setFormData(StateCopyUtils.cloneFormData(status.formData));
 			snapshot.setBinaryFilePath(status.binaryFilePath);
 		}
-		lines.addAll(formatRequestSnapshot(snapshot));
+		lines.addAll(stageFormatter.formatRequestSnapshot(snapshot));
 		long duration = System.nanoTime() - start;
 		return new DebugStageResult("Current Request", duration, lines, true);
 	}
@@ -438,7 +437,7 @@ public final class DebugCallSession {
 		beforeRequest.setFormData(StateCopyUtils.cloneFormData(formData));
 		beforeRequest.setBinaryFilePath(binaryFilePath);
 
-		validationError = validateDetails();
+		validationError = requestPolicy.validateDetails(requestType, details);
 		if (validationError != null) {
 			beforeFailed = true;
 			lines.add("Error: " + validationError);
@@ -509,8 +508,8 @@ public final class DebugCallSession {
 		}
 
 		lines.add("Request:");
-		lines.addAll(formatRequestSnapshot(currentRequest));
-		lines.addAll(formatLogs("Before request logs", beforeLogs));
+		lines.addAll(stageFormatter.formatRequestSnapshot(currentRequest));
+		lines.addAll(stageFormatter.formatLogs("Before request logs", beforeLogs));
 		if (beforeFailed) {
 			lines.add("Request will not be sent.");
 		}
@@ -552,7 +551,7 @@ public final class DebugCallSession {
 					formData,
 					binaryPath,
 					PayloadTypes.resolveType(payloadType),
-					requestTimeout()
+					requestPolicy.resolveTimeoutMillis(details, stateService.getDefaultTimeoutMillis())
 				);
 			} else {
 				if (currentRequest != null) {
@@ -566,7 +565,7 @@ public final class DebugCallSession {
 					templatedGrpcMethod,
 					templatedBody,
 					templatedHeaders,
-					requestTimeout()
+					requestPolicy.resolveTimeoutMillis(details, stateService.getDefaultTimeoutMillis())
 				);
 			}
 		} catch (InterruptedException error) {
@@ -585,10 +584,10 @@ public final class DebugCallSession {
 			lines.add("Request failed. No response received.");
 		} else if (requestType == RequestType.HTTP && httpResponse != null) {
 			lines.add("Status: " + HttpStatusReasons.format(httpResponse.statusCode, ""));
-			lines.addAll(formatResponseSnapshot(httpResponse.body, httpResponse.headers));
+			lines.addAll(stageFormatter.formatResponseSnapshot(httpResponse.body, httpResponse.headers));
 		} else if (requestType == RequestType.GRPC && grpcResponse != null) {
 			lines.add("Status: " + HttpStatusReasons.format(grpcResponse.statusCode, safe(grpcResponse.statusMessage)));
-			lines.addAll(formatResponseSnapshot(grpcResponse.body, grpcResponse.headers));
+			lines.addAll(stageFormatter.formatResponseSnapshot(grpcResponse.body, grpcResponse.headers));
 		} else {
 			lines.add("No response received.");
 		}
@@ -624,7 +623,7 @@ public final class DebugCallSession {
 			}
 			globalContextRuntime.persist(globalContext);
 			afterLogs = logs.size() == logStart ? List.of() : new ArrayList<>(logs.subList(logStart, logs.size()));
-			lines.addAll(formatLogs("After request logs", afterLogs));
+			lines.addAll(stageFormatter.formatLogs("After request logs", afterLogs));
 		}
 		long duration = System.nanoTime() - start;
 		return new DebugStageResult("After Request Logs", duration, lines, true);
@@ -637,36 +636,14 @@ public final class DebugCallSession {
 		if (finalRequest == null) {
 			finalRequest = new ScriptRequest("", List.of(), List.of());
 		}
-		lines.addAll(formatRequestSnapshot(finalRequest));
-		lines.addAll(formatLogs("Logs after request", logs == null ? List.of() : logs));
+		lines.addAll(stageFormatter.formatRequestSnapshot(finalRequest));
+		lines.addAll(stageFormatter.formatLogs("Logs after request", logs == null ? List.of() : logs));
 		long duration = System.nanoTime() - start;
 		return new DebugStageResult("Final State", duration, lines, false);
 	}
 
-	private String validateDetails() {
-		if (details == null) {
-			return "Missing request details.";
-		}
-		if (requestType == RequestType.HTTP) {
-			if (details.url == null || details.url.isBlank()) {
-				return "Missing URL.";
-			}
-		} else {
-			if (details.target == null || details.target.isBlank()) {
-				return "Missing gRPC target.";
-			}
-			if (details.service == null || details.service.isBlank()) {
-				return "Missing gRPC service.";
-			}
-			if (details.grpcMethod == null || details.grpcMethod.isBlank()) {
-				return "Missing gRPC method.";
-			}
-		}
-		return null;
-	}
-
 	private void appendStage(DebugStageResult result) {
-		String header = result.stageName + " (" + formatDuration(result.durationNanos) + ")";
+		String header = result.stageName + " (" + stageFormatter.formatDuration(result.durationNanos) + ")";
 		if (outputHasContent) {
 			printValue("\n");
 		}
@@ -739,112 +716,6 @@ public final class DebugCallSession {
 		outputConsole.print(text, SEPARATOR_OUTPUT);
 	}
 
-	private String formatDuration(long nanos) {
-		long ms = TimeUnit.NANOSECONDS.toMillis(nanos);
-		long seconds = ms / 1000;
-		long remain = ms % 1000;
-		return seconds + "s:" + String.format("%03dms", remain);
-	}
-
-	private int requestTimeout() {
-		return details == null ? stateService.getDefaultTimeoutMillis() : Math.max(0, details.timeoutMillis);
-	}
-
-	private List<String> formatRequestSnapshot(ScriptRequest request) {
-		List<String> lines = new ArrayList<>();
-		if (request == null) {
-			lines.add("<empty>");
-			return lines;
-		}
-		lines.add("Body:");
-		appendTextBlock(lines, request.getBody());
-		appendHeaderEntries(lines, "Params", request.getParams());
-		appendHeaderEntries(lines, "Headers", request.getHeaders());
-		appendFormEntries(lines, request.getFormData());
-		appendBinaryPath(lines, request.getBinaryFilePath());
-		return lines;
-	}
-
-	private List<String> formatResponseSnapshot(
-		String body,
-		Map<String, List<String>> headers
-	) {
-		List<String> lines = new ArrayList<>();
-		lines.add("Response Body:");
-		appendTextBlock(lines, JsonUtils.prettyPrint(body));
-		lines.add("Response Headers:");
-		appendTextBlock(lines, JsonUtils.toJson(headers));
-		return lines;
-	}
-
-	private List<String> formatLogs(String title, List<String> logLines) {
-		List<String> lines = new ArrayList<>();
-		lines.add(title + ":");
-		if (logLines == null || logLines.isEmpty()) {
-			lines.add("<empty>");
-			return lines;
-		}
-		lines.addAll(logLines);
-		return lines;
-	}
-
-	private void appendHeaderEntries(
-		List<String> lines,
-		String label,
-		List<HeaderEntryState> entries
-	) {
-		lines.add(label + ":");
-		if (entries == null || entries.isEmpty()) {
-			lines.add("<empty>");
-			return;
-		}
-		for (HeaderEntryState entry : entries) {
-			if (entry == null) {
-				continue;
-			}
-			String name = entry.name == null ? "" : entry.name;
-			String value = entry.value == null ? "" : entry.value;
-			String enabled = entry.enabled ? "enabled" : "disabled";
-			lines.add(name + ": " + (value.isBlank() ? "<empty>" : value) + " (" + enabled + ")");
-		}
-	}
-
-	private void appendFormEntries(List<String> lines, List<FormEntryState> entries) {
-		lines.add("Form Data:");
-		if (entries == null || entries.isEmpty()) {
-			lines.add("<empty>");
-			return;
-		}
-		for (FormEntryState entry : entries) {
-			if (entry == null) {
-				continue;
-			}
-			String name = entry.name == null ? "" : entry.name;
-			String value = entry.value == null ? "" : entry.value;
-			String enabled = entry.enabled ? "enabled" : "disabled";
-			String type = entry.file ? "file" : "text";
-			lines.add(name + ": " + (value.isBlank() ? "<empty>" : value) + " (" + type + ", " + enabled + ")");
-		}
-	}
-
-	private void appendBinaryPath(List<String> lines, String path) {
-		lines.add("Binary File:");
-		if (path == null || path.isBlank()) {
-			lines.add("<empty>");
-		} else {
-			lines.add(path);
-		}
-	}
-
-	private void appendTextBlock(List<String> lines, String text) {
-		if (text == null || text.isBlank()) {
-			lines.add("<empty>");
-			return;
-		}
-		String[] parts = text.split("\\R", -1);
-		Collections.addAll(lines, parts);
-	}
-
 	private void invokeLater(Runnable runnable) {
 		ApplicationManager.getApplication().invokeLater(runnable, ModalityState.any());
 	}
@@ -853,92 +724,4 @@ public final class DebugCallSession {
 		return value == null ? "" : value;
 	}
 
-	private boolean requestsEqual(ScriptRequest a, ScriptRequest b) {
-		if (a == b) {
-			return true;
-		}
-		if (a == null || b == null) {
-			return false;
-		}
-		if (!Objects.equals(safe(a.getBody()), safe(b.getBody()))) {
-			return false;
-		}
-		if (!headerListsEqual(a.getHeaders(), b.getHeaders())) {
-			return false;
-		}
-		if (!headerListsEqual(a.getParams(), b.getParams())) {
-			return false;
-		}
-		if (!formListsEqual(a.getFormData(), b.getFormData())) {
-			return false;
-		}
-		return Objects.equals(safe(a.getBinaryFilePath()), safe(b.getBinaryFilePath()));
-	}
-
-	private boolean headerListsEqual(List<HeaderEntryState> left, List<HeaderEntryState> right) {
-		if (left == null) {
-			left = List.of();
-		}
-		if (right == null) {
-			right = List.of();
-		}
-		if (left.size() != right.size()) {
-			return false;
-		}
-		for (int i = 0; i < left.size(); i++) {
-			HeaderEntryState a = left.get(i);
-			HeaderEntryState b = right.get(i);
-			if (a == b) {
-				continue;
-			}
-			if (a == null || b == null) {
-				return false;
-			}
-			if (!Objects.equals(a.name, b.name)) {
-				return false;
-			}
-			if (!Objects.equals(a.value, b.value)) {
-				return false;
-			}
-			if (a.enabled != b.enabled) {
-				return false;
-			}
-		}
-		return true;
-	}
-
-	private boolean formListsEqual(List<FormEntryState> left, List<FormEntryState> right) {
-		if (left == null) {
-			left = List.of();
-		}
-		if (right == null) {
-			right = List.of();
-		}
-		if (left.size() != right.size()) {
-			return false;
-		}
-		for (int i = 0; i < left.size(); i++) {
-			FormEntryState a = left.get(i);
-			FormEntryState b = right.get(i);
-			if (a == b) {
-				continue;
-			}
-			if (a == null || b == null) {
-				return false;
-			}
-			if (!Objects.equals(a.name, b.name)) {
-				return false;
-			}
-			if (!Objects.equals(a.value, b.value)) {
-				return false;
-			}
-			if (a.enabled != b.enabled) {
-				return false;
-			}
-			if (a.file != b.file) {
-				return false;
-			}
-		}
-		return true;
-	}
 }

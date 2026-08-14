@@ -1,5 +1,7 @@
 package com.non_organic_onion.intelli.webrunner.ui;
 
+import com.non_organic_onion.intelli.webrunner.util.UuidService;
+
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
@@ -9,7 +11,6 @@ import java.awt.BorderLayout;
 import java.awt.FlowLayout;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
-import java.util.UUID;
 
 public final class UuidGeneratorPanel {
 	private final JPanel root = new JPanel(new BorderLayout(8, 8));
@@ -49,7 +50,7 @@ public final class UuidGeneratorPanel {
 	}
 
 	private void generateUuid() {
-		uuidField.setText(UUID.randomUUID().toString());
+		uuidField.setText(UuidService.randomUuid());
 		uuidField.selectAll();
 		statusLabel.setText(" ");
 	}

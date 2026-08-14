@@ -1,8 +1,5 @@
 package com.non_organic_onion.intelli.webrunner.proto;
 
-import com.intellij.openapi.vfs.VfsUtilCore;
-import com.intellij.openapi.vfs.VirtualFile;
-
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -18,20 +15,19 @@ final class ProtoRegistry {
 	private final Set<String> loadedFiles = new HashSet<>();
 
 	void loadFrom(
-		VirtualFile file,
-		ProtoImportIndex index
+		ProtoSource source,
+		ProtoImportResolver resolver
 	) {
-		if (file == null) {
+		if (source == null) {
 			return;
 		}
-		String path = file.getPath();
+		String path = source.path();
 		if (loadedFiles.contains(path)) {
 			return;
 		}
 		loadedFiles.add(path);
 		try {
-			String text = VfsUtilCore.loadText(file);
-			ProtoParser parser = new ProtoParser(text, file.getName(), path);
+			ProtoParser parser = new ProtoParser(source.content(), source.name(), path);
 			ProtoFile protoFile = parser.parse();
 			for (ProtoMessage message : protoFile.messages) {
 				messages.putIfAbsent(message.fullName, message);
@@ -41,9 +37,8 @@ final class ProtoRegistry {
 				enums.putIfAbsent(protoEnum.fullName, protoEnum);
 			}
 			for (String importPath : protoFile.imports) {
-				VirtualFile imported = index.resolve(importPath);
-				if (imported != null) {
-					loadFrom(imported, index);
+				if (resolver != null) {
+					resolver.resolve(importPath).ifPresent(imported -> loadFrom(imported, resolver));
 				}
 			}
 		} catch (Exception ignored) {

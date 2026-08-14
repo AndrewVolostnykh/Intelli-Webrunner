@@ -1,5 +1,6 @@
 package com.non_organic_onion.intelli.webrunner.ui;
 
+import com.non_organic_onion.intelli.webrunner.util.Base64TextService;
 import com.intellij.openapi.project.Project;
 import com.intellij.ui.components.JBScrollPane;
 
@@ -16,8 +17,6 @@ import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 
 public final class Base64ToolPanel {
 	private final JPanel root = new JPanel(new BorderLayout());
@@ -95,30 +94,7 @@ public final class Base64ToolPanel {
 	}
 
 	private void updateOutput() {
-		String input = inputField.getText();
-		if (input == null || input.isEmpty()) {
-			outputField.setText("");
-			return;
-		}
-		if (decodeMode) {
-			outputField.setText(decode(input));
-		} else {
-			outputField.setText(encode(input));
-		}
-	}
-
-	private static String decode(String value) {
-		try {
-			String normalized = value.replaceAll("\\s+", "");
-			byte[] decoded = Base64.getDecoder().decode(normalized);
-			return new String(decoded, StandardCharsets.UTF_8);
-		} catch (IllegalArgumentException e) {
-			return "Invalid Base64: " + e.getMessage();
-		}
-	}
-
-	private static String encode(String value) {
-		return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
+		outputField.setText(Base64TextService.transform(inputField.getText(), decodeMode));
 	}
 
 	private static JTextArea createTextField(Project project) {

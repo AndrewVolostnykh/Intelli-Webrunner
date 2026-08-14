@@ -2,8 +2,8 @@ package com.non_organic_onion.intelli.webrunner.ui;
 
 import com.non_organic_onion.intelli.webrunner.execution.DownloadResult;
 import com.non_organic_onion.intelli.webrunner.execution.ExecutionResult;
+import com.non_organic_onion.intelli.webrunner.execution.ResponseResultService;
 import com.non_organic_onion.intelli.webrunner.util.ContentDispositionUtils;
-import com.non_organic_onion.intelli.webrunner.util.HttpStatusReasons;
 import com.intellij.json.JsonFileType;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
@@ -22,7 +22,6 @@ import javax.swing.Timer;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.io.File;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 
 /**
@@ -165,7 +164,7 @@ public final class ResponseViewerPanel {
 			responseTimeLabel.setText("");
 			elapsedTimer = new Timer(100, e -> {
 				long elapsed = Math.max(0, System.currentTimeMillis() - elapsedStartedAtMillis);
-				responseStatusLabel.setText(formatDuration(elapsed));
+				responseStatusLabel.setText(ResponseResultService.formatDuration(elapsed));
 			});
 			elapsedTimer.start();
 		});
@@ -188,7 +187,7 @@ public final class ResponseViewerPanel {
 			setLogs(result.logs);
 			responseStatusLabel.setForeground(result.statusCode >= 400 ? JBColor.RED : JBColor.GREEN);
 			responseTimeLabel.setText("");
-			responseStatusLabel.setText(formatResultMetadata(result));
+			responseStatusLabel.setText(ResponseResultService.resultMetadata(result));
 			if (onResponsePersisted != null) {
 				onResponsePersisted.run();
 			}
@@ -274,32 +273,4 @@ public final class ResponseViewerPanel {
 		);
 	}
 
-	private static String formatDuration(long durationMillis) {
-		return durationMillis + " ms";
-	}
-
-	private static String formatResultMetadata(ExecutionResult result) {
-		StringBuilder builder = new StringBuilder();
-		builder.append("Status: ").append(HttpStatusReasons.format(result.statusCode, result.statusMessage));
-		if (result.durationMillis >= 0) {
-			builder.append(" | ").append(formatDuration(result.durationMillis));
-		}
-		builder.append(" | ").append(formatSize(responseBodySize(result.responseBody)));
-		return builder.toString();
-	}
-
-	private static int responseBodySize(String responseBody) {
-		return responseBody == null ? 0 : responseBody.getBytes(StandardCharsets.UTF_8).length;
-	}
-
-	private static String formatSize(int bytes) {
-		if (bytes < 1024) {
-			return bytes + " B";
-		}
-		double kib = bytes / 1024.0;
-		if (kib < 1024) {
-			return String.format("%.1f KB", kib);
-		}
-		return String.format("%.1f MB", kib / 1024.0);
-	}
 }

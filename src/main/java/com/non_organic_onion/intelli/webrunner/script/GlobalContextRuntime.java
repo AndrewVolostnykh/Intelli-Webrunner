@@ -1,7 +1,6 @@
 package com.non_organic_onion.intelli.webrunner.script;
 
 import com.non_organic_onion.intelli.webrunner.state.GlobalContextState;
-import com.non_organic_onion.intelli.webrunner.state.GlobalWebrunnerStateService;
 import com.non_organic_onion.intelli.webrunner.state.HeaderEntryState;
 
 import java.util.LinkedHashMap;
@@ -14,19 +13,19 @@ import java.util.Map;
  */
 public final class GlobalContextRuntime {
 
-	private final GlobalWebrunnerStateService stateService;
+	private final GlobalContextStore globalContextStore;
 	private final ScriptRuntime scriptRuntime;
 
 	public GlobalContextRuntime(
-		GlobalWebrunnerStateService stateService,
+		GlobalContextStore globalContextStore,
 		ScriptRuntime scriptRuntime
 	) {
-		this.stateService = stateService;
+		this.globalContextStore = globalContextStore;
 		this.scriptRuntime = scriptRuntime;
 	}
 
 	public VarsStore loadAndRun(ScriptLogger logger) {
-		GlobalContextState state = stateService.getGlobalContext();
+		GlobalContextState state = globalContextStore.getGlobalContext();
 		VarsStore globalContext = toVarsStore(state.variables);
 		String script = state.script == null ? "" : state.script;
 		if (!script.isBlank()) {
@@ -47,7 +46,7 @@ public final class GlobalContextRuntime {
 				)
 			);
 		}
-		stateService.saveGlobalContextVariables(globalContext.entries());
+		globalContextStore.saveGlobalContextVariables(globalContext.entries());
 		return globalContext;
 	}
 
@@ -78,7 +77,7 @@ public final class GlobalContextRuntime {
 
 	public void persist(VarsStore globalContext) {
 		if (globalContext != null) {
-			stateService.saveGlobalContextVariables(globalContext.entries());
+			globalContextStore.saveGlobalContextVariables(globalContext.entries());
 		}
 	}
 

@@ -49,7 +49,7 @@ public final class ProtoBodyGenerator {
 		Collection<VirtualFile> files =
 			FilenameIndex.getAllFilesByExt(project, "proto", GlobalSearchScope.projectScope(project));
 		ProtoImportIndex index = new ProtoImportIndex(project, files);
-		registry.loadFrom(rootFile, index);
+		registry.loadFrom(index.sourceOfRoot(rootFile), index);
 		return registry;
 	}
 

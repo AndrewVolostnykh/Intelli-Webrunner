@@ -1,11 +1,16 @@
 package com.non_organic_onion.intelli.webrunner.ui;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.non_organic_onion.intelli.webrunner.execution.ChainExecutionService;
+import com.non_organic_onion.intelli.webrunner.execution.ChainEditorStateService;
+import com.non_organic_onion.intelli.webrunner.execution.ChainRequestDispatcher;
+import com.non_organic_onion.intelli.webrunner.execution.ChainRunner;
+import com.non_organic_onion.intelli.webrunner.execution.ChainRunner.ChainRequest;
+import com.non_organic_onion.intelli.webrunner.execution.ChainRunner.ChainRunSession;
 import com.non_organic_onion.intelli.webrunner.execution.ExecutionResult;
-import com.non_organic_onion.intelli.webrunner.execution.HttpStressConfig;
 import com.non_organic_onion.intelli.webrunner.execution.HttpStressExecutionService;
-import com.non_organic_onion.intelli.webrunner.execution.HttpStressRequest;
 import com.non_organic_onion.intelli.webrunner.execution.RequestExecutionService;
+import com.non_organic_onion.intelli.webrunner.execution.RequestTimeoutPolicy;
+import com.non_organic_onion.intelli.webrunner.execution.RequestTestService;
 import com.non_organic_onion.intelli.webrunner.script.VarsStore;
 import com.non_organic_onion.intelli.webrunner.state.ChainState;
 import com.non_organic_onion.intelli.webrunner.state.ChainStepState;
@@ -15,9 +20,7 @@ import com.non_organic_onion.intelli.webrunner.state.NodeState;
 import com.non_organic_onion.intelli.webrunner.state.NodeType;
 import com.non_organic_onion.intelli.webrunner.state.RequestDetailsState;
 import com.non_organic_onion.intelli.webrunner.state.RequestStatusState;
-import com.non_organic_onion.intelli.webrunner.state.RequestTestState;
 import com.non_organic_onion.intelli.webrunner.state.RequestType;
-import com.non_organic_onion.intelli.webrunner.util.JsonUtils;
 import com.intellij.icons.AllIcons;
 import com.intellij.json.JsonFileType;
 import com.intellij.openapi.application.ApplicationManager;
@@ -65,15 +68,12 @@ import java.awt.Insets;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -92,8 +92,6 @@ public final class ChainEditorPanel {
 	private final RequestExecutionService executionService;
 	private final HttpStressExecutionService httpStressExecutionService;
 	private final Runnable onRequestsChanged;
-	private final ObjectMapper mapper = new ObjectMapper();
-
 	private final DefaultListModel<String> chainListModel = new DefaultListModel<>();
 	private final JBList<String> chainList = new JBList<>(chainListModel);
 	private final JButton chainAddButton = new JButton("Add");
@@ -127,8 +125,10 @@ public final class ChainEditorPanel {
 	private final JPanel root = new JPanel(new BorderLayout());
 	private final Map<Integer, ChainNodeRenderer.StepMetadata> chainStepMetadata = new HashMap<>();
 	private final List<ChainStepState> chainStepStates = new ArrayList<>();
+	private final RequestTimeoutPolicy requestTimeoutPolicy = new RequestTimeoutPolicy();
+	private final ChainEditorStateService chainEditorStateService = new ChainEditorStateService();
 
-	private ChainSession chainSession;
+	private ChainRunSession chainSession;
 	private Future<?> activeChainExecution;
 	private String activeRequestId;
 	private String chainLogsText = "";
@@ -138,8 +138,8 @@ public final class ChainEditorPanel {
 	private static final Dimension ICON_BUTTON_SIZE = new Dimension(28, 28);
 	private static final JBColor SKIP_LOG_COLOR = new JBColor(new Color(188, 112, 22), new Color(205, 132, 36));
 	private static final JBColor INTERRUPT_LOG_COLOR = new JBColor(new Color(190, 55, 55), new Color(214, 78, 78));
-	private static final String SKIP_LOG_PREFIX = "[[WEBRUNNER_CHAIN_SKIP]]";
-	private static final String INTERRUPT_LOG_PREFIX = "[[WEBRUNNER_CHAIN_INTERRUPT]]";
+	private static final String SKIP_LOG_PREFIX = ChainExecutionService.SKIP_LOG_PREFIX;
+	private static final String INTERRUPT_LOG_PREFIX = ChainExecutionService.INTERRUPT_LOG_PREFIX;
 
 	public ChainEditorPanel(
 		Project project,
@@ -317,7 +317,7 @@ public final class ChainEditorPanel {
 			for (String id : chain.requestIds) {
 				chainListModel.addElement(id);
 			}
-			chainStepStates.addAll(normalizeChainStepStates(chain.requestIds, chain.stepStates));
+			chainStepStates.addAll(chainEditorStateService.normalizeChainStepStates(chain.requestIds, chain.stepStates));
 			setChainLogs(safe(chain.logs));
 			chainCurrentStateArea.setText(safe(chain.currentState));
 		} else {
@@ -375,7 +375,7 @@ public final class ChainEditorPanel {
 
 	private void addChainRequest(String requestId) {
 		chainListModel.addElement(requestId);
-		chainStepStates.add(defaultChainStepState(requestId));
+		chainStepStates.add(chainEditorStateService.defaultChainStepState(requestId));
 		clearChainStepMetadata();
 		chainList.setSelectedIndex(chainListModel.size() - 1);
 		save();
@@ -492,25 +492,19 @@ public final class ChainEditorPanel {
 		chainDebugButton.setEnabled(false);
 		chainStopButton.setEnabled(true);
 		chainNextButton.setEnabled(debug);
-		chainSession = new ChainSession();
+		chainSession = new ChainRunSession();
 		chainSession.chainContext = loadChainContext();
 		if (debug) {
 			runChainNext();
 			return;
 		}
 		activeChainExecution = runInBackground(() -> {
-			while (chainSession.nextIndex < chainListModel.size()) {
-				if (chainSession.cancelled || Thread.currentThread().isInterrupted()) {
-					finishChainRun();
-					return;
-				}
-				executeChainStep(
-					chainSession,
-					chainListModel.getElementAt(chainSession.nextIndex),
-					chainSession.nextIndex
-				);
-				chainSession.nextIndex++;
-			}
+			ChainRunner.runRemaining(
+				chainSession,
+				chainRequestIds(),
+				chainStepContext(),
+				() -> chainSession.cancelled
+			);
 			finishChainRun();
 		});
 	}
@@ -523,22 +517,19 @@ public final class ChainEditorPanel {
 			finishChainRun();
 			return;
 		}
-		int stepIndex = chainSession.nextIndex;
-		String requestId = chainListModel.getElementAt(stepIndex);
 		activeChainExecution = runInBackground(() -> {
-			if (chainSession.cancelled || Thread.currentThread().isInterrupted()) {
+			ChainRunner.RunOutcome outcome = ChainRunner.runNext(
+				chainSession,
+				chainRequestIds(),
+				chainStepContext(),
+				() -> chainSession.cancelled
+			);
+			if (outcome.cancelled()) {
 				finishChainRun();
 				return;
 			}
-			executeChainStep(chainSession, requestId, stepIndex);
-			chainSession.nextIndex++;
-			if (chainSession.cancelled) {
-				finishChainRun();
-				return;
-			}
-			invokeLater(() -> chainNextButton.setEnabled(
-				chainSession.nextIndex < chainListModel.size()));
-			if (chainSession.nextIndex >= chainListModel.size()) {
+			invokeLater(() -> chainNextButton.setEnabled(outcome.waitingForNext()));
+			if (outcome.finished()) {
 				finishChainRun();
 			}
 		});
@@ -555,159 +546,12 @@ public final class ChainEditorPanel {
 		finishChainRun();
 	}
 
-	private void executeChainStep(
-		ChainSession session,
-		String requestId,
-		int stepIndex
-	) {
-		NodeState node = stateService.findNode(requestId);
-		if (node == null || node.type != NodeType.REQUEST) {
-			session.logs.add("Missing request " + requestId);
-			updateChainUi(session, null);
-			return;
+	private List<String> chainRequestIds() {
+		List<String> ids = new ArrayList<>();
+		for (int index = 0; index < chainListModel.size(); index++) {
+			ids.add(chainListModel.getElementAt(index));
 		}
-		RequestDetailsState details = stateService.getRequestDetails(requestId);
-		RequestStatusState status = stateService.getRequestStatus(requestId);
-		if (details == null || status == null) {
-			session.logs.add("Missing request details for " + requestId);
-			updateChainUi(session, null);
-			return;
-		}
-		ChainStepState stepState = chainStepStateAt(stepIndex);
-		ExecutionResult result = stepState.runBasicTests
-			? executeChainStepTests(session, node, details, status, stepState)
-			: executeChainRequestVariant(session, requestId, details, status, stepState);
-		if (result == null) {
-			return;
-		}
-		appendExecutionLogs(session, result);
-		appendFlowLog(session, node, result);
-		updateChainStepResultState(stepIndex, result);
-		Set<Integer> successCodes = stepState.runBasicTests
-			? requestTestSuccessCodes()
-			: parseSuccessCodes(chainStepStateAt(stepIndex).successCodes);
-		updateChainStepMetadata(stepIndex, result, successCodes);
-		storeChainRequest(session, node, details, status, result);
-		if ("Interrupted".equals(result.flowStatus) || hasAssertionFailure(result)) {
-			session.cancelled = true;
-		}
-
-		Map<String, Object> currentState = new LinkedHashMap<>();
-		Map<String, Object> meta = new LinkedHashMap<>();
-		meta.put("id", requestId);
-		meta.put("name", node.name);
-		meta.put("type", details.type.name());
-		if (details.type == RequestType.HTTP) {
-			meta.put("http", Map.of("method", safe(details.method), "url", safe(details.url)));
-		} else if (details.type == RequestType.GRPC) {
-			meta.put(
-				"grpc",
-				Map.of("target", safe(details.target), "service", safe(details.service), "method", safe(details.grpcMethod))
-			);
-		}
-		currentState.put("request", Map.of(
-			"meta", meta,
-			"body", safe(status.requestBody),
-			"headers", status.requestHeaders == null ? List.of() : status.requestHeaders
-		));
-		currentState.put("response", Map.of(
-			"statusCode", result.statusCode,
-			"statusMessage", safe(result.statusMessage),
-			"body", safe(result.responseBody),
-			"headers", safe(result.responseHeaders),
-			"cookies", safe(result.responseCookies)
-		));
-		currentState.put("vars", session.vars.entries());
-		currentState.put("chainContext", session.chainContext.entries());
-		session.currentStateJson = JsonUtils.toJson(currentState);
-		updateChainResult(stepIndex, result);
-
-		updateChainUi(session, node, stepIndex);
-	}
-
-	private ExecutionResult executeChainStepTests(
-		ChainSession session,
-		NodeState node,
-		RequestDetailsState details,
-		RequestStatusState baseStatus,
-		ChainStepState stepState
-	) {
-		ExecutionResult lastResult = executeChainRequestVariant(session, node.id, details, baseStatus, stepState);
-		updateRequestBaseTestResult(node.id, lastResult);
-		if (lastResult == null || shouldStopAfterChainTest(lastResult)) {
-			return lastResult;
-		}
-		if (baseStatus.tests == null || baseStatus.tests.isEmpty()) {
-			return lastResult;
-		}
-		for (RequestTestState test : baseStatus.tests) {
-			if (test == null || test.disabled) {
-				continue;
-			}
-			if (session.cancelled || Thread.currentThread().isInterrupted()) {
-				return lastResult;
-			}
-			RequestStatusState testStatus = statusForChainTest(baseStatus, test);
-			ExecutionResult testResult = executeChainRequestVariant(session, node.id, details, testStatus, stepState);
-			if (testResult == null) {
-				return lastResult;
-			}
-			updateRequestTestResult(node.id, test.id, testResult);
-			lastResult = testResult;
-			if (shouldStopAfterChainTest(testResult)) {
-				return testResult;
-			}
-		}
-		return lastResult;
-	}
-
-	private boolean shouldStopAfterChainTest(ExecutionResult result) {
-		return "Interrupted".equals(result.flowStatus)
-			|| hasAssertionFailure(result)
-			|| !requestTestSuccessCodes().contains(result.statusCode);
-	}
-
-	private RequestStatusState statusForChainTest(RequestStatusState baseStatus, RequestTestState test) {
-		RequestStatusState status = copyBaseStatus(baseStatus);
-		status.requestBody = test.requestBody;
-		status.requestHeaders = test.requestHeaders == null ? List.of() : test.requestHeaders;
-		status.requestParams = test.requestParams == null ? List.of() : test.requestParams;
-		status.formData = test.formData == null ? List.of() : test.formData;
-		status.binaryFilePath = test.binaryFilePath;
-		status.beforeScript = test.beforeScript;
-		status.afterScript = test.afterScript;
-		return status;
-	}
-
-	private RequestStatusState copyBaseStatus(RequestStatusState source) {
-		RequestStatusState copy = new RequestStatusState();
-		if (source == null) {
-			return copy;
-		}
-		copy.requestId = source.requestId;
-		copy.requestBody = source.requestBody;
-		copy.requestHeaders = source.requestHeaders == null ? List.of() : source.requestHeaders;
-		copy.requestParams = source.requestParams == null ? List.of() : source.requestParams;
-		copy.formData = source.formData == null ? List.of() : source.formData;
-		copy.binaryFilePath = source.binaryFilePath;
-		copy.beforeScript = source.beforeScript;
-		copy.afterScript = source.afterScript;
-		copy.stressEnabled = source.stressEnabled;
-		copy.stressRequestsPerSec = source.stressRequestsPerSec;
-		copy.stressTotalDuration = source.stressTotalDuration;
-		copy.stressTotalDurationUnit = source.stressTotalDurationUnit;
-		copy.stressNumberOfRequests = source.stressNumberOfRequests;
-		copy.stressParallelWorkers = source.stressParallelWorkers;
-		copy.stressRampUpTime = source.stressRampUpTime;
-		copy.stressRampUpTimeUnit = source.stressRampUpTimeUnit;
-		copy.stressDelayBetweenRequests = source.stressDelayBetweenRequests;
-		copy.stressDelayBetweenRequestsUnit = source.stressDelayBetweenRequestsUnit;
-		copy.stressJitterFrom = source.stressJitterFrom;
-		copy.stressJitterTo = source.stressJitterTo;
-		copy.kafkaKeyType = source.kafkaKeyType;
-		copy.kafkaBodyType = source.kafkaBodyType;
-		copy.kafkaPartitions = source.kafkaPartitions;
-		return copy;
+		return ids;
 	}
 
 	private void updateRequestBaseTestResult(String requestId, ExecutionResult result) {
@@ -718,12 +562,7 @@ public final class ChainEditorPanel {
 		if (status == null) {
 			return;
 		}
-		status.resultStatus = resolveRequestTestStatus(result);
-		status.resultDetails = requestTestResultDetails(result);
-		status.responseBody = result.responseBody;
-		status.responseHeaders = result.responseHeaders;
-		status.responseCookies = result.responseCookies;
-		status.logs = result.logs;
+		RequestTestService.applyResult(status, null, result, RequestTestService.defaultSuccessCodes(), "");
 		stateService.saveRequestStatus(status);
 	}
 
@@ -735,120 +574,139 @@ public final class ChainEditorPanel {
 		if (status == null || status.tests == null) {
 			return;
 		}
-		for (RequestTestState test : status.tests) {
-			if (test == null || !Objects.equals(test.id, testId)) {
-				continue;
+		RequestTestService.applyResult(status, testId, result, RequestTestService.defaultSuccessCodes(), "");
+		stateService.saveRequestStatus(status);
+	}
+
+	private ChainRunner.StepContext chainStepContext() {
+		return new ChainRunner.StepContext(
+			requestId -> {
+				NodeState node = stateService.findNode(requestId);
+				RequestDetailsState details = stateService.getRequestDetails(requestId);
+				RequestStatusState status = stateService.getRequestStatus(requestId);
+				return new ChainRequest(node, details, status);
+			},
+			this::chainStepStateAt,
+			(session, request, status, stepState) -> executeChainRequestVariant(
+				session,
+				request.node() == null ? "" : request.node().id,
+				request.details(),
+				status,
+				stepState
+			),
+			new ChainRunner.ResultSink() {
+				@Override
+				public void onRequestTestResult(
+					String requestId,
+					String testId,
+					ExecutionResult result
+				) {
+					if (testId == null) {
+						updateRequestBaseTestResult(requestId, result);
+					} else {
+						updateRequestTestResult(requestId, testId, result);
+					}
+				}
+
+				@Override
+				public void onStepResult(
+					int stepIndex,
+					ExecutionResult result,
+					Set<Integer> successCodes
+				) {
+					updateChainStepResultState(stepIndex, result);
+					updateChainStepMetadata(stepIndex, result, successCodes);
+				}
+			},
+			new ChainRunner.EventSink() {
+				@Override
+				public void onMissingRequest(
+					ChainRunSession session,
+					String requestId
+				) {
+					updateChainUi(session, null);
+				}
+
+				@Override
+				public void onMissingDetails(
+					ChainRunSession session,
+					ChainRequest request
+				) {
+					updateChainUi(session, null);
+				}
+
+				@Override
+				public void onStepCompleted(
+					ChainRunSession session,
+					ChainRequest request,
+					int stepIndex,
+					ExecutionResult result
+				) {
+					updateChainResult(stepIndex, result);
+					updateChainUi(session, request.node(), stepIndex);
+				}
 			}
-			test.resultStatus = resolveRequestTestStatus(result);
-			test.resultDetails = requestTestResultDetails(result);
-			test.responseBody = result.responseBody;
-			test.responseHeaders = result.responseHeaders;
-			test.responseCookies = result.responseCookies;
-			test.logs = result.logs;
-			stateService.saveRequestStatus(status);
-			return;
-		}
-	}
-
-	private String resolveRequestTestStatus(ExecutionResult result) {
-		if (hasAssertionFailure(result)) {
-			return "Failed";
-		}
-		return requestTestSuccessCodes().contains(result.statusCode) ? "Passed" : "Failed";
-	}
-
-	private String requestTestResultDetails(ExecutionResult result) {
-		return result.statusCode + " | " + formatDuration(result.durationMillis) + " | " +
-			formatSize(responseBodySize(result.responseBody));
+		);
 	}
 
 	private ExecutionResult executeChainRequestVariant(
-		ChainSession session,
+		ChainRunSession session,
 		String requestId,
 		RequestDetailsState details,
 		RequestStatusState status,
 		ChainStepState stepState
 	) {
-		String beforeScript = combineScripts(
-			stepState.runBasicBeforeRequest ? status.beforeScript : "",
-			stepState.beforeRequestScript
-		);
-		String afterScript = combineScripts(
-			stepState.runBasicAfterRequest ? status.afterScript : "",
-			stepState.afterRequestScript
-		);
-		ExecutionResult result;
-		if (details.type == RequestType.HTTP) {
-			String method = details.method == null ? "GET" : details.method;
-			HttpStressConfig stressConfig = loadStressConfig(stepState, status);
-			if (stressConfig.enabled()) {
-				if (!stressConfig.hasLimit()) {
-					result = ExecutionResult.failure(List.of("Stress test requires Total Duration or Number of requests."));
-				} else {
-					result = httpStressExecutionService.execute(
-						new HttpStressRequest(
-							method,
-							details.url,
-							status.requestHeaders,
-							status.requestParams,
-							status.requestBody,
-							beforeScript,
-							afterScript,
-							details.payloadType,
-							status.formData,
-							status.binaryFilePath,
-							session.chainContext,
-							session.chainRequests,
-							requestTimeout(details)
-						),
-						stressConfig
-					);
-					if (result == null) {
-						return null;
-					}
+		return ChainRequestDispatcher.dispatch(
+			new ChainRequestDispatcher.DispatchRequest(
+				requestId,
+				details,
+				status,
+				stepState,
+				session.vars,
+				session.chainContext,
+				session.chainRequests,
+				requestTimeout(details)
+			),
+			new ChainRequestDispatcher.DispatchHandlers(
+				(method, url, headers, params, body, before, after, vars, chainContext, chainRequests,
+				 payloadType, formData, binaryFilePath, timeoutMillis) ->
+					executionService.executeWithScripts(
+						method,
+						url,
+						headers,
+						params,
+						body,
+						before,
+						after,
+						true,
+						vars,
+						chainContext,
+						chainRequests,
+						payloadType,
+						formData,
+						binaryFilePath,
+						timeoutMillis
+					),
+				httpStressExecutionService::execute,
+				(grpcDetails, headers, params, body, before, after, vars, chainContext, chainRequests, timeoutMillis) ->
+					executionService.executeGrpcWithScripts(
+						grpcDetails,
+						headers,
+						params,
+						body,
+						before,
+						after,
+						vars,
+						chainContext,
+						chainRequests,
+						timeoutMillis
+					),
+				message -> {
+					session.logs.add(message);
+					updateChainUi(session, null);
 				}
-			} else {
-				result = executionService.executeWithScripts(method,
-											details.url,
-											status.requestHeaders,
-											status.requestParams,
-											status.requestBody,
-											beforeScript,
-											afterScript,
-											true,
-											session.vars,
-											session.chainContext,
-											session.chainRequests,
-											details.payloadType,
-											status.formData,
-											status.binaryFilePath,
-											requestTimeout(details)
-				);
-			}
-		} else if (details.type == RequestType.GRPC) {
-			if (details.service == null || details.service.isBlank() || details.grpcMethod == null ||
-				details.grpcMethod.isBlank()) {
-				session.logs.add("Missing gRPC service or method for " + requestId);
-				updateChainUi(session, null);
-				return null;
-			}
-			result = executionService.executeGrpcWithScripts(details,
-											status.requestHeaders,
-											status.requestParams,
-											status.requestBody,
-											beforeScript,
-											afterScript,
-											session.vars,
-											session.chainContext,
-											session.chainRequests,
-											requestTimeout(details)
-			);
-		} else {
-			session.logs.add("Unsupported request in chain: " + requestId);
-			updateChainUi(session, null);
-			return null;
-		}
-		return result;
+			)
+		);
 	}
 
 	private void updateChainResult(int stepIndex, ExecutionResult result) {
@@ -940,28 +798,10 @@ public final class ChainEditorPanel {
 		}
 	}
 
-	private List<ChainStepState> normalizeChainStepStates(
-		List<String> requestIds,
-		List<ChainStepState> steps
-	) {
-		List<ChainStepState> normalized = new ArrayList<>();
-		if (requestIds == null) {
-			return normalized;
-		}
-		for (int index = 0; index < requestIds.size(); index++) {
-			ChainStepState step = steps != null && index < steps.size()
-				? copyChainStepState(steps.get(index))
-				: defaultChainStepState(requestIds.get(index));
-			step.requestId = requestIds.get(index);
-			normalized.add(step);
-		}
-		return normalized;
-	}
-
 	private ChainStepState chainStepStateAt(int index) {
 		while (index >= chainStepStates.size()) {
 			String requestId = index < chainListModel.size() ? chainListModel.getElementAt(index) : "";
-			chainStepStates.add(defaultChainStepState(requestId));
+			chainStepStates.add(chainEditorStateService.defaultChainStepState(requestId));
 		}
 		ChainStepState step = chainStepStates.get(index);
 		if (index >= 0 && index < chainListModel.size()) {
@@ -970,296 +810,32 @@ public final class ChainEditorPanel {
 		return step;
 	}
 
-	private ChainStepState defaultChainStepState(String requestId) {
-		ChainStepState step = new ChainStepState();
-		step.requestId = requestId;
-		step.successCodes = "200";
-		return step;
-	}
-
-	private ChainStepState copyChainStepState(ChainStepState source) {
-		if (source == null) {
-			return defaultChainStepState("");
-		}
-		ChainStepState copy = new ChainStepState();
-		copy.requestId = source.requestId;
-		copy.successCodes = source.successCodes;
-		copy.runBasicBeforeRequest = source.runBasicBeforeRequest;
-		copy.runBasicAfterRequest = source.runBasicAfterRequest;
-		copy.runBasicStress = source.runBasicStress;
-		copy.runBasicTests = source.runBasicTests;
-		copy.runIfScript = source.runIfScript;
-		copy.beforeRequestScript = source.beforeRequestScript;
-		copy.afterRequestScript = source.afterRequestScript;
-		copy.interruptIfScript = source.interruptIfScript;
-		copy.rawRequestSnapshot = source.rawRequestSnapshot;
-		copy.sentRequestSnapshot = source.sentRequestSnapshot;
-		copy.responseSnapshot = source.responseSnapshot;
-		copy.resultBody = source.resultBody;
-		copy.resultResponse = source.resultResponse;
-		copy.resultHeaders = source.resultHeaders;
-		copy.resultCookies = source.resultCookies;
-		copy.resultBodySnapshot = source.resultBodySnapshot;
-		return copy;
-	}
-
 	private void updateChainStepResultState(int stepIndex, ExecutionResult result) {
-		ChainStepState step = chainStepStateAt(stepIndex);
-		step.rawRequestSnapshot = safe(result.rawRequestSnapshot);
-		step.sentRequestSnapshot = safe(result.sentRequestSnapshot);
-		step.responseSnapshot = safe(result.responseSnapshot);
-		step.resultBody = safe(result.responseBody);
-		step.resultResponse = JsonUtils.toJson(Map.of(
-			"statusCode", result.statusCode,
-			"statusMessage", safe(result.statusMessage),
-			"durationMillis", result.durationMillis
-		));
-		step.resultHeaders = safe(result.responseHeaders);
-		step.resultCookies = safe(result.responseCookies);
-		step.resultBodySnapshot = safe(result.responseBody);
-	}
-
-	private void appendFlowLog(
-		ChainSession session,
-		NodeState node,
-		ExecutionResult result
-	) {
-		String name = node == null ? "" : safe(node.name);
-		if ("Skipped".equals(result.flowStatus)) {
-			session.logs.add(SKIP_LOG_PREFIX + "Request '" + name + "' was skipped");
-		} else if ("Interrupted".equals(result.flowStatus)) {
-			session.logs.add(INTERRUPT_LOG_PREFIX + "Request " + name + " interrupted chain.");
-		}
-	}
-
-	private void appendExecutionLogs(
-		ChainSession session,
-		ExecutionResult result
-	) {
-		if (result == null || result.logs == null || result.logs.isBlank()) {
-			return;
-		}
-		for (String line : result.logs.split("\\R")) {
-			if (line == null || line.isBlank() || isFlowControlLog(line)) {
-				continue;
-			}
-			session.logs.add(line);
-		}
+		ChainExecutionService.applyResultToStep(chainStepStateAt(stepIndex), result);
 	}
 
 	private boolean isFlowControlLog(String line) {
-		String trimmed = line == null ? "" : line.trim();
-		return trimmed.startsWith(SKIP_LOG_PREFIX)
-			|| trimmed.startsWith(INTERRUPT_LOG_PREFIX)
-			|| "Skipped before request send.".equals(trimmed)
-			|| "Skipped after request send.".equals(trimmed)
-			|| "Interrupted before request send.".equals(trimmed)
-			|| "Interrupted after request send.".equals(trimmed);
-	}
-
-	private void storeChainRequest(
-		ChainSession session,
-		NodeState node,
-		RequestDetailsState details,
-		RequestStatusState status,
-		ExecutionResult result
-	) {
-		Map<String, Object> snapshot = new LinkedHashMap<>();
-		Map<String, Object> meta = new LinkedHashMap<>();
-		meta.put("id", safe(node.id));
-		meta.put("name", safe(node.name));
-		meta.put("type", details.type == null ? "" : details.type.name());
-		snapshot.put("meta", meta);
-		snapshot.put("configuredRequest", configuredRequestSnapshot(details, status));
-		snapshot.put("request", parseJsonValue(result.sentRequestSnapshot));
-		snapshot.put("sentRequest", parseJsonValue(result.sentRequestSnapshot));
-		snapshot.put("rawRequest", parseJsonValue(result.rawRequestSnapshot));
-		snapshot.put("response", parseJsonValue(result.responseSnapshot));
-		snapshot.put("result", Map.of(
-			"statusCode", result.statusCode,
-			"statusMessage", safe(result.statusMessage),
-			"body", parseJsonValue(result.responseBody),
-			"headers", parseJsonValue(result.responseHeaders),
-			"cookies", parseJsonValue(result.responseCookies),
-			"logs", safe(result.logs),
-			"durationMillis", result.durationMillis
-		));
-		if (node.name != null && !node.name.isBlank()) {
-			session.chainRequests.put(node.name, snapshot);
-		}
-		session.chainRequests.put(node.id, snapshot);
-	}
-
-	private Map<String, Object> configuredRequestSnapshot(
-		RequestDetailsState details,
-		RequestStatusState status
-	) {
-		Map<String, Object> snapshot = new LinkedHashMap<>();
-		snapshot.put("body", status == null ? "" : parseJsonValue(status.requestBody));
-		snapshot.put("headers", status == null || status.requestHeaders == null ? List.of() : status.requestHeaders);
-		snapshot.put("params", status == null || status.requestParams == null ? List.of() : status.requestParams);
-		snapshot.put("formData", status == null || status.formData == null ? List.of() : status.formData);
-		snapshot.put("binaryFilePath", status == null ? "" : safe(status.binaryFilePath));
-		if (details == null) {
-			return snapshot;
-		}
-		if (details.type == RequestType.HTTP) {
-			snapshot.put("method", safe(details.method));
-			snapshot.put("url", safe(details.url));
-		} else if (details.type == RequestType.GRPC) {
-			snapshot.put("target", safe(details.target));
-			snapshot.put("service", safe(details.service));
-			snapshot.put("method", safe(details.grpcMethod));
-		}
-		return snapshot;
-	}
-
-	private Object parseJsonValue(String value) {
-		if (value == null || value.isBlank()) {
-			return "";
-		}
-		try {
-			return mapper.readValue(value, Object.class);
-		} catch (Exception ignored) {
-			return value;
-		}
-	}
-
-	private HttpStressConfig loadStressConfig(
-		ChainStepState step,
-		RequestStatusState status
-	) {
-		if (step == null || status == null || !step.runBasicStress || !status.stressEnabled) {
-			return HttpStressConfig.disabled();
-		}
-		return new HttpStressConfig(
-			true,
-			parseDouble(status.stressRequestsPerSec, 0),
-			parseDurationMillis(status.stressTotalDuration, status.stressTotalDurationUnit),
-			parseInt(status.stressNumberOfRequests, 0),
-			parseInt(status.stressParallelWorkers, 1),
-			parseDurationMillis(status.stressRampUpTime, status.stressRampUpTimeUnit),
-			parseDurationMillis(status.stressDelayBetweenRequests, status.stressDelayBetweenRequestsUnit),
-			parseDouble(status.stressJitterFrom, 0),
-			parseDouble(status.stressJitterTo, 0)
-		);
+		return ChainExecutionService.isFlowControlLog(line);
 	}
 
 	private int requestTimeout(RequestDetailsState details) {
-		return details == null ? stateService.getDefaultTimeoutMillis() : Math.max(0, details.timeoutMillis);
-	}
-
-	private String combineScripts(
-		String basicScript,
-		String chainScript
-	) {
-		String basic = safe(basicScript).trim();
-		String chain = safe(chainScript).trim();
-		if (basic.isBlank()) {
-			return chain;
-		}
-		if (chain.isBlank()) {
-			return basic;
-		}
-		return basic + "\n" + chain;
-	}
-
-	private int parseInt(
-		String value,
-		int fallback
-	) {
-		try {
-			return value == null || value.isBlank() ? fallback : Math.max(0, Integer.parseInt(value.trim()));
-		} catch (NumberFormatException ignored) {
-			return fallback;
-		}
-	}
-
-	private double parseDouble(
-		String value,
-		double fallback
-	) {
-		try {
-			return value == null || value.isBlank() ? fallback : Math.max(0, Double.parseDouble(value.trim()));
-		} catch (NumberFormatException ignored) {
-			return fallback;
-		}
-	}
-
-	private long parseDurationMillis(
-		String value,
-		String unit
-	) {
-		double amount = parseDouble(value, 0);
-		if (amount <= 0) {
-			return 0;
-		}
-		String normalizedUnit = unit == null ? "sec" : unit.trim().toLowerCase(Locale.ROOT);
-		if ("min".equals(normalizedUnit)) {
-			return Math.round(amount * 60_000);
-		}
-		if ("mills".equals(normalizedUnit)) {
-			return Math.round(amount);
-		}
-		return Math.round(amount * 1000);
+		return requestTimeoutPolicy.resolve(details, stateService.getDefaultTimeoutMillis());
 	}
 
 	private void updateChainStepMetadata(int stepIndex, ExecutionResult result, Set<Integer> successCodes) {
-		String status = resolveStepStatus(result, successCodes);
-		String details = flowStatus(result).isBlank()
-			? result.statusCode + " | " + formatDuration(result.durationMillis) + " | " +
-				formatSize(responseBodySize(result.responseBody))
-			: formatDuration(result.durationMillis) + " | " + formatSize(responseBodySize(result.responseBody));
+		ChainExecutionService.StepMetadata metadata = ChainExecutionService.stepMetadata(result, successCodes);
 		invokeLater(() -> {
-			chainStepMetadata.put(stepIndex, new ChainNodeRenderer.StepMetadata(status, details));
+			chainStepMetadata.put(stepIndex, new ChainNodeRenderer.StepMetadata(metadata.status(), metadata.details()));
 			chainList.repaint();
 		});
-	}
-
-	private String resolveStepStatus(ExecutionResult result, Set<Integer> successCodes) {
-		if (hasAssertionFailure(result)) {
-			return "Failed";
-		}
-		String flowStatus = flowStatus(result);
-		if (!flowStatus.isBlank()) {
-			return flowStatus;
-		}
-		return successCodes.contains(result.statusCode) ? "Passed" : "Failed";
-	}
-
-	private String flowStatus(ExecutionResult result) {
-		return result == null || result.flowStatus == null ? "" : result.flowStatus;
-	}
-
-	private boolean hasAssertionFailure(ExecutionResult result) {
-		return result != null && result.logs != null && result.logs.contains("Assertion failed");
 	}
 
 	private Set<Integer> parseSuccessCodes() {
 		return parseSuccessCodes(comboEditorText(chainSuccessCodesCombo));
 	}
 
-	private Set<Integer> requestTestSuccessCodes() {
-		Set<Integer> codes = new HashSet<>();
-		for (int code = 200; code < 300; code++) {
-			codes.add(code);
-		}
-		return codes;
-	}
-
 	private Set<Integer> parseSuccessCodes(String text) {
-		Set<Integer> codes = new HashSet<>();
-		for (String part : safe(text).split(",")) {
-			try {
-				codes.add(Integer.parseInt(part.trim()));
-			} catch (NumberFormatException ignored) {
-				// Ignore invalid fragments while the user is editing the comma-separated list.
-			}
-		}
-		if (codes.isEmpty()) {
-			codes.add(200);
-		}
-		return codes;
+		return ChainExecutionService.parseSuccessCodes(text);
 	}
 
 	private String comboEditorText(JComboBox<String> combo) {
@@ -1272,34 +848,15 @@ public final class ChainEditorPanel {
 		chainList.repaint();
 	}
 
-	private static String formatDuration(long durationMillis) {
-		return durationMillis >= 0 ? durationMillis + " ms" : "";
-	}
-
-	private static int responseBodySize(String responseBody) {
-		return responseBody == null ? 0 : responseBody.getBytes(StandardCharsets.UTF_8).length;
-	}
-
-	private static String formatSize(int bytes) {
-		if (bytes < 1024) {
-			return bytes + " B";
-		}
-		double kib = bytes / 1024.0;
-		if (kib < 1024) {
-			return String.format("%.1f KB", kib);
-		}
-		return String.format("%.1f MB", kib / 1024.0);
-	}
-
 	private void updateChainUi(
-		ChainSession session,
+		ChainRunSession session,
 		NodeState node
 	) {
 		updateChainUi(session, node, -1);
 	}
 
 	private void updateChainUi(
-		ChainSession session,
+		ChainRunSession session,
 		NodeState node,
 		int stepIndex
 	) {
@@ -1454,7 +1011,7 @@ public final class ChainEditorPanel {
 		}
 		chain.requestIds = Collections.list(chainListModel.elements());
 		chain.stepStates = new ArrayList<>(chainStepStates);
-		chain.chainContextVariables = cloneContextVariables(variables);
+		chain.chainContextVariables = chainEditorStateService.cloneContextVariables(variables);
 		chain.logs = chainLogsText;
 		chain.currentState = chainCurrentStateArea.getText();
 		stateService.saveChainState(chain);
@@ -1466,7 +1023,9 @@ public final class ChainEditorPanel {
 		}
 		ChainState chain = stateService.getChainState(activeRequestId);
 		List<HeaderEntryState> variables =
-			chain == null || chain.chainContextVariables == null ? new ArrayList<>() : cloneContextVariables(chain.chainContextVariables);
+			chain == null || chain.chainContextVariables == null
+				? new ArrayList<>()
+				: chainEditorStateService.cloneContextVariables(chain.chainContextVariables);
 		Map<String, HeaderEntryState> byName = new LinkedHashMap<>();
 		for (HeaderEntryState variable : variables) {
 			if (variable != null && variable.name != null && !variable.name.isBlank()) {
@@ -1486,32 +1045,9 @@ public final class ChainEditorPanel {
 				variables.add(variable);
 				byName.put(variable.name, variable);
 			}
-			variable.value = stringifyContextValue(entry.getValue());
+			variable.value = chainEditorStateService.stringifyContextValue(entry.getValue());
 		}
 		saveChainContextVariables(variables);
-	}
-
-	private List<HeaderEntryState> cloneContextVariables(List<HeaderEntryState> variables) {
-		List<HeaderEntryState> copy = new ArrayList<>();
-		if (variables == null) {
-			return copy;
-		}
-		for (HeaderEntryState variable : variables) {
-			if (variable == null) {
-				continue;
-			}
-			HeaderEntryState clone = new HeaderEntryState();
-			clone.id = variable.id;
-			clone.name = variable.name;
-			clone.value = variable.value;
-			clone.enabled = variable.enabled;
-			copy.add(clone);
-		}
-		return copy;
-	}
-
-	private String stringifyContextValue(Object value) {
-		return value == null ? "" : String.valueOf(value);
 	}
 
 	private void configureEnabledColumn(JTable table) {
@@ -1643,7 +1179,7 @@ public final class ChainEditorPanel {
 		LogViewerPanel logsPanel,
 		String logs
 	) {
-		logsPanel.setLogs(logs, this::chainLogColor, this::stripChainLogPrefix);
+		logsPanel.setLogs(logs, this::chainLogColor, chainEditorStateService::stripChainLogPrefix);
 	}
 
 	private Color chainLogColor(String line) {
@@ -1657,19 +1193,6 @@ public final class ChainEditorPanel {
 			return INTERRUPT_LOG_COLOR;
 		}
 		return line.contains("Assertion failed") ? JBColor.RED : JBColor.foreground();
-	}
-
-	private String stripChainLogPrefix(String line) {
-		if (line == null) {
-			return "";
-		}
-		if (line.startsWith(SKIP_LOG_PREFIX)) {
-			return line.substring(SKIP_LOG_PREFIX.length());
-		}
-		if (line.startsWith(INTERRUPT_LOG_PREFIX)) {
-			return line.substring(INTERRUPT_LOG_PREFIX.length());
-		}
-		return line;
 	}
 
 	private static String safe(String value) {
@@ -1694,18 +1217,6 @@ public final class ChainEditorPanel {
 		EditorTextField editor = EditorThemeSupport.configure(new EditorTextField("", project, JsonFileType.INSTANCE));
 		editor.setOneLineMode(false);
 		return editor;
-	}
-
-	private static final class ChainSession {
-
-		int nextIndex = 0;
-		VarsStore vars = new VarsStore();
-		VarsStore chainContext = new VarsStore();
-		Map<String, Object> chainRequests = new LinkedHashMap<>();
-		List<String> logs = new ArrayList<>();
-		Set<Integer> successCodes = Set.of(200);
-		String currentStateJson = "";
-		boolean cancelled = false;
 	}
 
 	private record RequestSelection(String requestId, boolean copy) {
@@ -1756,7 +1267,7 @@ public final class ChainEditorPanel {
 				saveActiveChainStepUi();
 				ChainStepState movedStep = fromIndex < chainStepStates.size()
 					? chainStepStates.remove(fromIndex)
-					: defaultChainStepState(data);
+					: chainEditorStateService.defaultChainStepState(data);
 				chainListModel.remove(fromIndex);
 				chainListModel.add(index, data);
 				chainStepStates.add(Math.min(index, chainStepStates.size()), movedStep);

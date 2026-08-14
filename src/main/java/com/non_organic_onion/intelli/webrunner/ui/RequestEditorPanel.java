@@ -7,13 +7,19 @@ import com.non_organic_onion.intelli.webrunner.execution.DownloadResult;
 import com.non_organic_onion.intelli.webrunner.execution.ExecutionResult;
 import com.non_organic_onion.intelli.webrunner.execution.HttpExecutor;
 import com.non_organic_onion.intelli.webrunner.execution.HttpStressConfig;
+import com.non_organic_onion.intelli.webrunner.execution.HttpStressConfigService;
 import com.non_organic_onion.intelli.webrunner.execution.HttpStressExecutionService;
 import com.non_organic_onion.intelli.webrunner.execution.HttpStressRequest;
 import com.non_organic_onion.intelli.webrunner.execution.RequestExecutionService;
+import com.non_organic_onion.intelli.webrunner.execution.RequestTestService;
+import com.non_organic_onion.intelli.webrunner.execution.RequestTestService.TestRunTarget;
+import com.non_organic_onion.intelli.webrunner.execution.RequestTimeoutPolicy;
 import com.non_organic_onion.intelli.webrunner.grpc.GrpcExecutionResponse;
 import com.non_organic_onion.intelli.webrunner.grpc.GrpcExecutor;
+import com.non_organic_onion.intelli.webrunner.grpc.GrpcSelectionService;
 import com.non_organic_onion.intelli.webrunner.grpc.GrpcServiceInfo;
 import com.non_organic_onion.intelli.webrunner.kafka.KafkaListenMessage;
+import com.non_organic_onion.intelli.webrunner.kafka.KafkaListenMessageService;
 import com.non_organic_onion.intelli.webrunner.kafka.KafkaListenRequest;
 import com.non_organic_onion.intelli.webrunner.kafka.KafkaListenerService;
 import com.non_organic_onion.intelli.webrunner.kafka.KafkaMetadataService;
@@ -28,12 +34,14 @@ import com.non_organic_onion.intelli.webrunner.state.FormEntryState;
 import com.non_organic_onion.intelli.webrunner.state.GlobalWebrunnerStateService;
 import com.non_organic_onion.intelli.webrunner.state.HeaderEntryState;
 import com.non_organic_onion.intelli.webrunner.state.HeaderPresetState;
+import com.non_organic_onion.intelli.webrunner.state.IntellijGlobalContextStore;
 import com.non_organic_onion.intelli.webrunner.state.NodeState;
 import com.non_organic_onion.intelli.webrunner.state.NodeType;
 import com.non_organic_onion.intelli.webrunner.state.RequestDetailsState;
 import com.non_organic_onion.intelli.webrunner.state.RequestStatusState;
 import com.non_organic_onion.intelli.webrunner.state.RequestTestState;
 import com.non_organic_onion.intelli.webrunner.state.RequestType;
+import com.non_organic_onion.intelli.webrunner.util.HeaderPresetUtils;
 import com.non_organic_onion.intelli.webrunner.util.PayloadTypes;
 import com.non_organic_onion.intelli.webrunner.util.JsonUtils;
 import com.non_organic_onion.intelli.webrunner.util.TemplateEngine;
@@ -97,9 +105,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -258,6 +264,10 @@ public final class RequestEditorPanel {
 
 	private final Map<String, List<GrpcServiceInfo>> grpcServicesCache = new ConcurrentHashMap<>();
 	private final Map<String, String> grpcServiceSelection = new ConcurrentHashMap<>();
+	private final GrpcSelectionService grpcSelectionService = new GrpcSelectionService();
+	private final HttpStressConfigService httpStressConfigService = new HttpStressConfigService();
+	private final KafkaListenMessageService kafkaListenMessageService = new KafkaListenMessageService();
+	private final RequestTimeoutPolicy requestTimeoutPolicy = new RequestTimeoutPolicy();
 	private boolean isGrpcReloading = false;
 	private boolean isKafkaReloading = false;
 	private boolean stressTestsEnabled;
@@ -350,7 +360,7 @@ public final class RequestEditorPanel {
 	}
 
 	public void setDefaultTimeoutMillis(int timeoutMillis) {
-		defaultTimeoutMillis = normalizeTimeout(timeoutMillis);
+		defaultTimeoutMillis = requestTimeoutPolicy.normalize(timeoutMillis);
 		if (activeNode != null && activeNode.type == NodeType.REQUEST && activeNode.requestType != RequestType.KAFKA_LISTEN) {
 			RequestDetailsState details = stateService.getRequestDetails(activeNode.id);
 			if (details == null) {
@@ -519,7 +529,7 @@ public final class RequestEditorPanel {
 		}
 		RequestDetailsState details = stateService.getRequestDetails(activeNode.id);
 		RequestStatusState status = stateService.getRequestStatus(activeNode.id);
-		RequestTestState test = findTest(status, activeTestId);
+		RequestTestState test = RequestTestService.findTest(status, activeTestId);
 		isLoading = true;
 		try {
 			if (test == null) {
@@ -529,7 +539,7 @@ public final class RequestEditorPanel {
 				headersTableModel.setHeaders(status != null ? status.requestHeaders : List.of(), activeNode.requestType != RequestType.GRPC);
 				List<HeaderEntryState> params = status != null ? status.requestParams : List.of();
 				if (activeNode.requestType == RequestType.HTTP) {
-					params = paramsForHttpUrl(params, details != null ? details.url : null);
+					params = UrlParamUtils.paramsForHttpUrl(params, details != null ? details.url : null);
 				}
 				paramsTableModel.setHeaders(params, true);
 			} else {
@@ -549,7 +559,7 @@ public final class RequestEditorPanel {
 		headersTableModel.setHeaders(test.requestHeaders == null ? List.of() : test.requestHeaders, activeNode.requestType != RequestType.GRPC);
 		List<HeaderEntryState> params = test.requestParams == null ? List.of() : test.requestParams;
 		if (activeNode.requestType == RequestType.HTTP && params.isEmpty()) {
-			params = paramsForHttpUrl(params, details != null ? details.url : null);
+			params = UrlParamUtils.paramsForHttpUrl(params, details != null ? details.url : null);
 		}
 		paramsTableModel.setHeaders(params, true);
 		responseViewer.setContent(
@@ -576,7 +586,7 @@ public final class RequestEditorPanel {
 		if (status.tests == null) {
 			status.tests = new ArrayList<>();
 		}
-		RequestTestState test = cloneBaseAsTest(status);
+		RequestTestState test = RequestTestService.cloneBaseAsTest(status);
 		test.id = UUID.randomUUID().toString();
 		test.name = name.trim();
 		status.tests.add(test);
@@ -644,7 +654,7 @@ public final class RequestEditorPanel {
 		}
 		saveActive();
 		RequestStatusState status = stateService.getRequestStatus(activeNode.id);
-		RequestTestState test = findTest(status, selected.id());
+		RequestTestState test = RequestTestService.findTest(status, selected.id());
 		if (test == null) {
 			return;
 		}
@@ -932,15 +942,11 @@ public final class RequestEditorPanel {
 			// Keep the last valid spinner value if the user typed invalid text.
 		}
 		Object value = spinner.getValue();
-		return value instanceof Number number ? normalizeTimeout(number.intValue()) : defaultTimeoutMillis;
-	}
-
-	private int normalizeTimeout(int timeoutMillis) {
-		return Math.max(0, timeoutMillis);
+		return value instanceof Number number ? requestTimeoutPolicy.normalize(number.intValue()) : defaultTimeoutMillis;
 	}
 
 	private int requestTimeout(RequestDetailsState details) {
-		return details == null ? defaultTimeoutMillis : normalizeTimeout(details.timeoutMillis);
+		return requestTimeoutPolicy.resolve(details, defaultTimeoutMillis);
 	}
 
 	private void setActiveTimeoutSpinnerValue(int timeoutMillis) {
@@ -948,11 +954,11 @@ public final class RequestEditorPanel {
 			return;
 		}
 		if (activeNode.requestType == RequestType.HTTP) {
-			httpTimeoutSpinner.setValue(normalizeTimeout(timeoutMillis));
+			httpTimeoutSpinner.setValue(requestTimeoutPolicy.normalize(timeoutMillis));
 		} else if (activeNode.requestType == RequestType.GRPC) {
-			grpcTimeoutSpinner.setValue(normalizeTimeout(timeoutMillis));
+			grpcTimeoutSpinner.setValue(requestTimeoutPolicy.normalize(timeoutMillis));
 		} else if (activeNode.requestType == RequestType.KAFKA) {
-			kafkaTimeoutSpinner.setValue(normalizeTimeout(timeoutMillis));
+			kafkaTimeoutSpinner.setValue(requestTimeoutPolicy.normalize(timeoutMillis));
 		}
 	}
 
@@ -1137,7 +1143,9 @@ public final class RequestEditorPanel {
 		configureEnabledColumn(headersTable);
 
 		headersTable.getColumnModel().getColumn(1).setCellEditor(createHeaderNameEditor(COMMON_HEADER_NAMES));
-		headersTable.getColumnModel().getColumn(2).setCellEditor(new HeaderValueCellEditor(this::buildHeaderPresetMap));
+		headersTable.getColumnModel().getColumn(2).setCellEditor(
+			new HeaderValueCellEditor(() -> HeaderPresetUtils.buildHeaderPresetMap(headerPresets))
+		);
 	}
 
 	private void configureParamsTableColumns() {
@@ -1179,77 +1187,12 @@ public final class RequestEditorPanel {
 	}
 
 	private TableCellEditor createHeaderNameEditor(List<String> variants) {
-		return new HeaderNameCellEditor(project, mergeHeaderVariants(variants));
-	}
-
-	private List<String> mergeHeaderVariants(List<String> base) {
-		List<String> merged = new ArrayList<>();
-		if (base != null) {
-			merged.addAll(base);
-		}
-		for (HeaderPresetState preset : headerPresets) {
-			if (preset == null || preset.name == null || preset.name.isBlank()) {
-				continue;
-			}
-			if (!merged.contains(preset.name)) {
-				merged.add(preset.name);
-			}
-		}
-		return merged;
-	}
-
-	private Map<String, List<String>> buildHeaderPresetMap() {
-		Map<String, List<String>> map = new LinkedHashMap<>();
-		for (HeaderPresetState preset : headerPresets) {
-			if (preset == null || preset.name == null || preset.name.isBlank()) {
-				continue;
-			}
-			String key = preset.name.trim().toLowerCase(Locale.ROOT);
-			List<String> values = preset.values == null ? List.of() : new ArrayList<>(preset.values);
-			map.put(key, values);
-		}
-		return map;
+		return new HeaderNameCellEditor(project, HeaderPresetUtils.mergeHeaderVariants(variants, headerPresets));
 	}
 
 	private void configureGrpcComboPopups() {
 		ComboPopupSizer.install(grpcServiceCombo, this::resolveGrpcPopupMaxWidth);
 		ComboPopupSizer.install(grpcMethodCombo, this::resolveGrpcPopupMaxWidth);
-	}
-
-	private String longestServiceName(List<GrpcServiceInfo> services) {
-		String longest = "";
-		for (GrpcServiceInfo info : services) {
-			String shortName = shortGrpcServiceName(info == null ? null : info.name);
-			if (shortName.length() > longest.length()) {
-				longest = shortName;
-			}
-		}
-		return longest.isEmpty() ? "Service" : longest;
-	}
-
-	private String shortGrpcServiceName(String fullName) {
-		String safeName = fullName == null ? "" : fullName.trim();
-		int separator = safeName.lastIndexOf('.');
-		return separator >= 0 && separator < safeName.length() - 1 ? safeName.substring(separator + 1) : safeName;
-	}
-
-	private String longestMethodName(
-		List<GrpcServiceInfo> services,
-		String selectedService
-	) {
-		String longest = "";
-		for (GrpcServiceInfo info : services) {
-			if (info == null || !Objects.equals(info.name, selectedService)) {
-				continue;
-			}
-			for (String method : info.methods) {
-				if (method != null && method.length() > longest.length()) {
-					longest = method;
-				}
-			}
-			break;
-		}
-		return longest.isEmpty() ? "MethodName" : longest;
 	}
 
 	private int resolveGrpcPopupMaxWidth() {
@@ -1304,7 +1247,7 @@ public final class RequestEditorPanel {
 		binaryFileField.setText(status != null ? safe(status.binaryFilePath) : "");
 		headersTableModel.setHeaders(status != null ? status.requestHeaders : List.of(), true);
 		List<HeaderEntryState> mergedParams =
-			paramsForHttpUrl(status != null ? status.requestParams : List.of(), details != null ? details.url : null);
+			UrlParamUtils.paramsForHttpUrl(status != null ? status.requestParams : List.of(), details != null ? details.url : null);
 		paramsTableModel.setHeaders(mergedParams, true);
 		paramsCards.show(paramsPanel, "table");
 		stressSettingsPanel.showFor(RequestType.HTTP);
@@ -1503,7 +1446,7 @@ public final class RequestEditorPanel {
 		if (activeTestId == null) {
 			writeEditorSnapshotToBase(status);
 		} else {
-			RequestTestState test = findTest(status, activeTestId);
+			RequestTestState test = RequestTestService.findTest(status, activeTestId);
 			if (test != null) {
 				writeEditorSnapshotToTest(test);
 			}
@@ -1513,42 +1456,7 @@ public final class RequestEditorPanel {
 	}
 
 	private RequestStatusState copyBaseStatus(RequestStatusState source, String requestId) {
-		RequestStatusState copy = new RequestStatusState();
-		copy.requestId = requestId;
-		if (source == null) {
-			return copy;
-		}
-		copy.requestBody = source.requestBody;
-		copy.requestHeaders = cloneHeaders(source.requestHeaders);
-		copy.requestParams = cloneHeaders(source.requestParams);
-		copy.formData = cloneFormData(source.formData);
-		copy.binaryFilePath = source.binaryFilePath;
-		copy.responseBody = source.responseBody;
-		copy.responseHeaders = source.responseHeaders;
-		copy.responseCookies = source.responseCookies;
-		copy.logs = source.logs;
-		copy.resultStatus = source.resultStatus;
-		copy.resultDetails = source.resultDetails;
-		copy.beforeScript = source.beforeScript;
-		copy.afterScript = source.afterScript;
-		copy.tests = cloneTests(source.tests);
-		copy.kafkaKeyType = source.kafkaKeyType;
-		copy.kafkaBodyType = source.kafkaBodyType;
-		copy.kafkaPartitions = source.kafkaPartitions;
-		copy.kafkaOffsetStrategy = source.kafkaOffsetStrategy;
-		copy.stressEnabled = source.stressEnabled;
-		copy.stressRequestsPerSec = source.stressRequestsPerSec;
-		copy.stressTotalDuration = source.stressTotalDuration;
-		copy.stressTotalDurationUnit = source.stressTotalDurationUnit;
-		copy.stressNumberOfRequests = source.stressNumberOfRequests;
-		copy.stressParallelWorkers = source.stressParallelWorkers;
-		copy.stressRampUpTime = source.stressRampUpTime;
-		copy.stressRampUpTimeUnit = source.stressRampUpTimeUnit;
-		copy.stressDelayBetweenRequests = source.stressDelayBetweenRequests;
-		copy.stressDelayBetweenRequestsUnit = source.stressDelayBetweenRequestsUnit;
-		copy.stressJitterFrom = source.stressJitterFrom;
-		copy.stressJitterTo = source.stressJitterTo;
-		return copy;
+		return RequestTestService.copyBaseStatus(source, requestId);
 	}
 
 	private void writeEditorSnapshotToBase(RequestStatusState status) {
@@ -1579,132 +1487,22 @@ public final class RequestEditorPanel {
 		test.afterScript = afterScriptArea.getText();
 	}
 
-	private RequestTestState cloneBaseAsTest(RequestStatusState status) {
-		RequestTestState test = new RequestTestState();
-		test.requestBody = status == null ? "" : safe(status.requestBody);
-		test.requestHeaders = status == null ? new ArrayList<>() : cloneHeaders(status.requestHeaders);
-		test.requestParams = status == null ? new ArrayList<>() : cloneHeaders(status.requestParams);
-		test.formData = status == null ? new ArrayList<>() : cloneFormData(status.formData);
-		test.binaryFilePath = status == null ? "" : safe(status.binaryFilePath);
-		test.beforeScript = status == null ? "" : safe(status.beforeScript);
-		test.afterScript = status == null ? "" : safe(status.afterScript);
-		test.responseBody = "";
-		test.responseHeaders = "";
-		test.responseCookies = "";
-		test.logs = "";
-		return test;
-	}
-
 	private RequestStatusState activeStatusView(RequestStatusState status) {
 		if (status == null || activeTestId == null) {
 			return status;
 		}
-		RequestTestState test = findTest(status, activeTestId);
+		RequestTestState test = RequestTestService.findTest(status, activeTestId);
 		if (test == null) {
 			return status;
 		}
-		RequestStatusState view = copyBaseStatus(status, status.requestId);
-		view.requestBody = test.requestBody;
-		view.requestHeaders = cloneHeaders(test.requestHeaders);
-		view.requestParams = cloneHeaders(test.requestParams);
-		view.formData = cloneFormData(test.formData);
-		view.binaryFilePath = test.binaryFilePath;
-		view.responseBody = test.responseBody;
-		view.responseHeaders = test.responseHeaders;
-		view.responseCookies = test.responseCookies;
-		view.logs = test.logs;
-		view.beforeScript = test.beforeScript;
-		view.afterScript = test.afterScript;
-		return view;
-	}
-
-	private RequestTestState findTest(RequestStatusState status, String testId) {
-		if (status == null || testId == null || status.tests == null) {
-			return null;
-		}
-		for (RequestTestState test : status.tests) {
-			if (test != null && Objects.equals(test.id, testId)) {
-				return test;
-			}
-		}
-		return null;
-	}
-
-	private List<RequestTestState> cloneTests(List<RequestTestState> tests) {
-		List<RequestTestState> copy = new ArrayList<>();
-		if (tests == null) {
-			return copy;
-		}
-		for (RequestTestState test : tests) {
-			if (test == null) {
-				continue;
-			}
-			RequestTestState clone = new RequestTestState();
-			clone.id = test.id;
-			clone.name = test.name;
-			clone.disabled = test.disabled;
-			clone.resultStatus = test.resultStatus;
-			clone.resultDetails = test.resultDetails;
-			clone.requestBody = test.requestBody;
-			clone.requestHeaders = cloneHeaders(test.requestHeaders);
-			clone.requestParams = cloneHeaders(test.requestParams);
-			clone.formData = cloneFormData(test.formData);
-			clone.binaryFilePath = test.binaryFilePath;
-			clone.beforeScript = test.beforeScript;
-			clone.afterScript = test.afterScript;
-			clone.responseBody = test.responseBody;
-			clone.responseHeaders = test.responseHeaders;
-			clone.responseCookies = test.responseCookies;
-			clone.logs = test.logs;
-			copy.add(clone);
-		}
-		return copy;
-	}
-
-	private List<HeaderEntryState> cloneHeaders(List<HeaderEntryState> headers) {
-		List<HeaderEntryState> copy = new ArrayList<>();
-		if (headers == null) {
-			return copy;
-		}
-		for (HeaderEntryState header : headers) {
-			if (header == null) {
-				continue;
-			}
-			HeaderEntryState clone = new HeaderEntryState();
-			clone.id = header.id;
-			clone.name = header.name;
-			clone.value = header.value;
-			clone.enabled = header.enabled;
-			copy.add(clone);
-		}
-		return copy;
-	}
-
-	private List<FormEntryState> cloneFormData(List<FormEntryState> entries) {
-		List<FormEntryState> copy = new ArrayList<>();
-		if (entries == null) {
-			return copy;
-		}
-		for (FormEntryState entry : entries) {
-			if (entry == null) {
-				continue;
-			}
-			FormEntryState clone = new FormEntryState();
-			clone.id = entry.id;
-			clone.name = entry.name;
-			clone.value = entry.value;
-			clone.enabled = entry.enabled;
-			clone.file = entry.file;
-			copy.add(clone);
-		}
-		return copy;
+		return RequestTestService.statusViewForTest(status, test);
 	}
 
 	private boolean isActiveTestDisabled() {
 		if (activeNode == null || activeTestId == null) {
 			return false;
 		}
-		RequestTestState test = findTest(stateService.getRequestStatus(activeNode.id), activeTestId);
+		RequestTestState test = RequestTestService.findTest(stateService.getRequestStatus(activeNode.id), activeTestId);
 		return test != null && test.disabled;
 	}
 
@@ -1723,56 +1521,9 @@ public final class RequestEditorPanel {
 		if (status == null) {
 			return;
 		}
-		String resultStatus = resolveTestResultStatus(result);
-		String details = result.statusCode + " | " + formatDuration(result.durationMillis) + " | " +
-			formatSize(responseBodySize(result.responseBody));
-		if (testId == null) {
-			status.resultStatus = resultStatus;
-			status.resultDetails = details;
-			status.responseBody = result.responseBody;
-			status.responseHeaders = result.responseHeaders;
-			status.responseCookies = result.responseCookies;
-			status.logs = result.logs;
-		} else {
-			RequestTestState test = findTest(status, testId);
-			if (test == null) {
-				return;
-			}
-			test.resultStatus = resultStatus;
-			test.resultDetails = details;
-			test.responseBody = result.responseBody;
-			test.responseHeaders = result.responseHeaders;
-			test.responseCookies = result.responseCookies;
-			test.logs = result.logs;
-		}
+		RequestTestService.applyResult(status, testId, result);
 		stateService.saveRequestStatus(status);
 		rebuildTestsTree(status);
-	}
-
-	private String resolveTestResultStatus(ExecutionResult result) {
-		if (result.logs != null && result.logs.contains("Assertion failed")) {
-			return "Failed";
-		}
-		return result.statusCode >= 200 && result.statusCode < 300 ? "Passed" : "Failed";
-	}
-
-	private String formatDuration(long durationMillis) {
-		return durationMillis < 0 ? "n/a" : durationMillis + " ms";
-	}
-
-	private int responseBodySize(String responseBody) {
-		return responseBody == null ? 0 : responseBody.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
-	}
-
-	private String formatSize(int bytes) {
-		if (bytes < 1024) {
-			return bytes + " B";
-		}
-		double kib = bytes / 1024.0;
-		if (kib < 1024) {
-			return String.format("%.1f KB", kib);
-		}
-		return String.format("%.1f MB", kib / 1024.0);
 	}
 
 	private void runAllTests() {
@@ -1790,46 +1541,13 @@ public final class RequestEditorPanel {
 		NodeState node = activeNode;
 		RequestDetailsState details = stateService.getRequestDetails(node.id);
 		RequestStatusState status = stateService.getRequestStatus(node.id);
-		List<TestRunTarget> targets = buildTestRunTargets(status);
+		List<TestRunTarget> targets = RequestTestService.buildEnabledTargets(status);
 		if (targets.isEmpty()) {
 			responseViewer.showLog("No enabled tests to run.");
 			return;
 		}
 		responseViewer.clearStatus();
 		runRequestInBackground(() -> runTestTargets(node, details, targets));
-	}
-
-	private List<TestRunTarget> buildTestRunTargets(RequestStatusState status) {
-		List<TestRunTarget> targets = new ArrayList<>();
-		if (status == null) {
-			return targets;
-		}
-		targets.add(new TestRunTarget(null, "Base", copyBaseStatus(status, status.requestId)));
-		if (status.tests != null) {
-			for (RequestTestState test : status.tests) {
-				if (test == null || test.disabled) {
-					continue;
-				}
-				targets.add(new TestRunTarget(test.id, safe(test.name), statusViewForTest(status, test)));
-			}
-		}
-		return targets;
-	}
-
-	private RequestStatusState statusViewForTest(RequestStatusState base, RequestTestState test) {
-		RequestStatusState view = copyBaseStatus(base, base.requestId);
-		view.requestBody = test.requestBody;
-		view.requestHeaders = cloneHeaders(test.requestHeaders);
-		view.requestParams = cloneHeaders(test.requestParams);
-		view.formData = cloneFormData(test.formData);
-		view.binaryFilePath = test.binaryFilePath;
-		view.responseBody = test.responseBody;
-		view.responseHeaders = test.responseHeaders;
-		view.responseCookies = test.responseCookies;
-		view.logs = test.logs;
-		view.beforeScript = test.beforeScript;
-		view.afterScript = test.afterScript;
-		return view;
 	}
 
 	private void runTestTargets(
@@ -1842,14 +1560,14 @@ public final class RequestEditorPanel {
 			if (Thread.currentThread().isInterrupted()) {
 				return;
 			}
-			ExecutionResult result = executeTestTarget(node, details, target.status);
+			ExecutionResult result = executeTestTarget(node, details, target.status());
 			if (result == null) {
 				continue;
 			}
 			completed++;
 			invokeLater(() -> {
-				updateTestResult(node.id, target.testId, result);
-				if (Objects.equals(activeTestId, target.testId)) {
+				updateTestResult(node.id, target.testId(), result);
+				if (Objects.equals(activeTestId, target.testId())) {
 					responseViewer.updateResponse(result, node.requestType == RequestType.GRPC);
 				}
 			});
@@ -1956,13 +1674,6 @@ public final class RequestEditorPanel {
 	) {
 	}
 
-	private record TestRunTarget(
-		String testId,
-		String name,
-		RequestStatusState status
-	) {
-	}
-
 	// ---- execution ----
 
 	public void executeHttp() {
@@ -2006,20 +1717,7 @@ public final class RequestEditorPanel {
 	}
 
 	private HttpStressConfig loadStressConfig(RequestStatusState status) {
-		if (!stressTestsEnabled || status == null || !status.stressEnabled) {
-			return HttpStressConfig.disabled();
-		}
-		return new HttpStressConfig(
-			true,
-			parseDouble(status.stressRequestsPerSec, 0),
-			parseDurationMillis(status.stressTotalDuration, status.stressTotalDurationUnit),
-			parseInt(status.stressNumberOfRequests, 0),
-			parseInt(status.stressParallelWorkers, 1),
-			parseDurationMillis(status.stressRampUpTime, status.stressRampUpTimeUnit),
-			parseDurationMillis(status.stressDelayBetweenRequests, status.stressDelayBetweenRequestsUnit),
-			parseDouble(status.stressJitterFrom, 0),
-			parseDouble(status.stressJitterTo, 0)
-		);
+		return httpStressConfigService.load(stressTestsEnabled, status);
 	}
 
 	private HttpStressRequest toStressRequest(HttpExecutionContext context) {
@@ -2036,46 +1734,6 @@ public final class RequestEditorPanel {
 			context.binaryFilePath,
 			context.timeoutMillis
 		);
-	}
-
-	private int parseInt(
-		String value,
-		int fallback
-	) {
-		try {
-			return value == null || value.isBlank() ? fallback : Math.max(0, Integer.parseInt(value.trim()));
-		} catch (NumberFormatException ignored) {
-			return fallback;
-		}
-	}
-
-	private double parseDouble(
-		String value,
-		double fallback
-	) {
-		try {
-			return value == null || value.isBlank() ? fallback : Math.max(0, Double.parseDouble(value.trim()));
-		} catch (NumberFormatException ignored) {
-			return fallback;
-		}
-	}
-
-	private long parseDurationMillis(
-		String value,
-		String unit
-	) {
-		double amount = parseDouble(value, 0);
-		if (amount <= 0) {
-			return 0;
-		}
-		String normalizedUnit = unit == null ? "sec" : unit.trim().toLowerCase(Locale.ROOT);
-		if ("min".equals(normalizedUnit)) {
-			return Math.round(amount * 60_000);
-		}
-		if ("mills".equals(normalizedUnit)) {
-			return Math.round(amount);
-		}
-		return Math.round(amount * 1000);
 	}
 
 	private void executeHttpDownload() {
@@ -2502,7 +2160,7 @@ public final class RequestEditorPanel {
 		kafkaListenButton.setText("Stop Listening");
 		updateKafkaListenResponse(
 			requestId,
-			toPrettyJson(existingMessages),
+			JsonUtils.toJson(existingMessages),
 			"Listening for Kafka messages... Received: " + existingMessages.size()
 		);
 		try {
@@ -2525,10 +2183,12 @@ public final class RequestEditorPanel {
 		List<KafkaListenMessage> messages =
 			kafkaListenMessagesByRequest.computeIfAbsent(requestId, this::loadKafkaListenMessages);
 		messages.add(0, message);
-		String logs = buildKafkaListenLogs(requestId, scriptLogs, messages.size());
+		RequestStatusState status = stateService.getRequestStatus(requestId);
+		String existingLogs = status == null ? "" : safe(status.logs);
+		String logs = kafkaListenMessageService.buildListenLogs(existingLogs, scriptLogs, messages.size());
 		updateKafkaListenResponse(
 			requestId,
-			toPrettyJson(messages),
+			JsonUtils.toJson(messages),
 			logs
 		);
 	}
@@ -2545,78 +2205,22 @@ public final class RequestEditorPanel {
 		List<String> logs = new ArrayList<>();
 		ScriptLogger logger = logs::add;
 		ScriptHelpers helpers = new ScriptHelpers(logger);
-		GlobalContextRuntime globalContextRuntime = new GlobalContextRuntime(stateService, scriptRuntime);
+		GlobalContextRuntime globalContextRuntime = new GlobalContextRuntime(new IntellijGlobalContextStore(stateService), scriptRuntime);
 		VarsStore globalContext = globalContextRuntime.loadAndRun(logger);
 		VarsStore vars = kafkaListenVarsByRequest.computeIfAbsent(requestId, key -> new VarsStore());
-		ScriptRequest rawRequest = kafkaListenMessageRequest(message);
-		ScriptRequest scriptRequest = kafkaListenMessageRequest(message);
+		ScriptRequest rawRequest = kafkaListenMessageService.toScriptRequest(message);
+		ScriptRequest scriptRequest = kafkaListenMessageService.toScriptRequest(message);
 		try {
 			scriptRuntime.runScript(
 				script,
 				new ScriptContext(vars, logger, helpers, scriptRequest, rawRequest, message, globalContext)
 			);
-			message.body = scriptRequest.getBody();
-			message.headers = toKafkaListenHeaders(scriptRequest.getHeaders());
+			kafkaListenMessageService.applyScriptRequest(message, scriptRequest);
 		} catch (Exception error) {
 			logs.add("On Message error: " + error.getMessage());
 		}
 		globalContextRuntime.persist(globalContext);
 		return logs;
-	}
-
-	private ScriptRequest kafkaListenMessageRequest(KafkaListenMessage message) {
-		return new ScriptRequest(
-			message == null ? "" : safe(message.body),
-			message == null ? List.of() : toHeaderEntries(message.headers),
-			List.of()
-		);
-	}
-
-	private List<HeaderEntryState> toHeaderEntries(List<KafkaListenMessage.Header> headers) {
-		List<HeaderEntryState> entries = new ArrayList<>();
-		if (headers == null) {
-			return entries;
-		}
-		for (KafkaListenMessage.Header header : headers) {
-			HeaderEntryState entry = new HeaderEntryState();
-			entry.name = header == null ? "" : safe(header.name);
-			entry.value = header == null ? "" : safe(header.value);
-			entry.enabled = true;
-			entries.add(entry);
-		}
-		return entries;
-	}
-
-	private List<KafkaListenMessage.Header> toKafkaListenHeaders(List<HeaderEntryState> headers) {
-		List<KafkaListenMessage.Header> entries = new ArrayList<>();
-		if (headers == null) {
-			return entries;
-		}
-		for (HeaderEntryState header : headers) {
-			if (header == null || !header.enabled) {
-				continue;
-			}
-			entries.add(new KafkaListenMessage.Header(safe(header.name), safe(header.value)));
-		}
-		return entries;
-	}
-
-	private String buildKafkaListenLogs(
-		String requestId,
-		List<String> scriptLogs,
-		int receivedCount
-	) {
-		RequestStatusState status = stateService.getRequestStatus(requestId);
-		List<String> lines = new ArrayList<>();
-		String existing = status == null ? "" : safe(status.logs);
-		if (!existing.isBlank()) {
-			lines.add(existing);
-		}
-		if (scriptLogs != null) {
-			lines.addAll(scriptLogs);
-		}
-		lines.add("Listening for Kafka messages... Received: " + receivedCount);
-		return String.join("\n", lines);
 	}
 
 	private void handleKafkaListenError(
@@ -2728,7 +2332,7 @@ public final class RequestEditorPanel {
 					for (GrpcServiceInfo info : services) {
 						grpcServiceCombo.addItem(info.name);
 					}
-					grpcServiceCombo.setPrototypeDisplayValue(longestServiceName(services));
+					grpcServiceCombo.setPrototypeDisplayValue(grpcSelectionService.longestServiceName(services));
 					if (desiredService != null && !desiredService.isBlank()) {
 						grpcServiceCombo.setSelectedItem(desiredService);
 					}
@@ -2764,22 +2368,18 @@ public final class RequestEditorPanel {
 		if (desiredMethod != null && !desiredMethod.isBlank()) {
 			grpcMethodCombo.setSelectedItem(desiredMethod);
 		}
-		grpcMethodCombo.setPrototypeDisplayValue(longestMethodName(services, selectedService));
+		grpcMethodCombo.setPrototypeDisplayValue(grpcSelectionService.longestMethodName(services, selectedService));
 	}
 
 	private String resolveSelectedGrpcStreamingKind(String requestId, String service, String method) {
-		if (requestId == null || service == null || method == null) {
-			return "UNARY";
-		}
-		for (GrpcServiceInfo info : grpcServicesCache.getOrDefault(requestId, List.of())) {
-			if (Objects.equals(info.name, service) && info.methodStreamingKinds != null) {
-				return info.methodStreamingKinds.getOrDefault(method, "UNARY");
-			}
-		}
 		RequestDetailsState details = stateService.getRequestDetails(requestId);
-		return details == null || details.grpcStreamingKind == null || details.grpcStreamingKind.isBlank()
-			? "UNARY"
-			: details.grpcStreamingKind;
+		String fallback = details == null ? "" : details.grpcStreamingKind;
+		return grpcSelectionService.resolveStreamingKind(
+			grpcServicesCache.getOrDefault(requestId, List.of()),
+			service,
+			method,
+			fallback
+		);
 	}
 
 	private void startDebugCall() {
@@ -2917,7 +2517,7 @@ public final class RequestEditorPanel {
 		List<HeaderEntryState> params = UrlParamUtils.hasQuery(httpUrlField.getText())
 			? UrlParamUtils.queryParamsFromUrl(httpUrlField.getText())
 			: List.of();
-		if (sameParams(paramsTableModel.getHeaders(), params)) {
+		if (UrlParamUtils.paramsEqual(paramsTableModel.getHeaders(), params)) {
 			return;
 		}
 		isSyncingParamsFromUrl = true;
@@ -2934,40 +2534,6 @@ public final class RequestEditorPanel {
 			return;
 		}
 		urlParamSyncTimer.restart();
-	}
-
-	private boolean sameParams(
-		List<HeaderEntryState> first,
-		List<HeaderEntryState> second
-	) {
-		List<HeaderEntryState> left = first == null ? List.of() : first;
-		List<HeaderEntryState> right = second == null ? List.of() : second;
-		if (left.size() != right.size()) {
-			return false;
-		}
-		for (int index = 0; index < left.size(); index++) {
-			HeaderEntryState a = left.get(index);
-			HeaderEntryState b = right.get(index);
-			if (a == null || b == null) {
-				if (a != b) {
-					return false;
-				}
-				continue;
-			}
-			if (a.enabled != b.enabled
-				|| !Objects.equals(safe(a.name), safe(b.name))
-				|| !Objects.equals(safe(a.value), safe(b.value))) {
-				return false;
-			}
-		}
-		return true;
-	}
-
-	private List<HeaderEntryState> paramsForHttpUrl(
-		List<HeaderEntryState> storedParams,
-		String url
-	) {
-		return UrlParamUtils.hasQuery(url) ? UrlParamUtils.queryParamsFromUrl(url) : storedParams;
 	}
 
 	// ---- format ----
@@ -3172,18 +2738,10 @@ public final class RequestEditorPanel {
 	}
 
 	private Map<String, Object> globalTemplateVars() {
-		GlobalContextRuntime runtime = new GlobalContextRuntime(stateService, scriptRuntime);
+		GlobalContextRuntime runtime = new GlobalContextRuntime(new IntellijGlobalContextStore(stateService), scriptRuntime);
 		VarsStore globalContext = runtime.loadAndRun(message -> {
 		});
 		return runtime.mergeForTemplates(globalContext, new VarsStore());
-	}
-
-	private String toPrettyJson(Object value) {
-		try {
-			return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(value);
-		} catch (Exception error) {
-			return String.valueOf(value);
-		}
 	}
 
 	private static String safe(String value) {
@@ -3250,7 +2808,7 @@ public final class RequestEditorPanel {
 		) {
 			Component component = super.getListCellRendererComponent(
 				list,
-				shortGrpcServiceName(value == null ? "" : String.valueOf(value)),
+				grpcSelectionService.shortServiceName(value == null ? "" : String.valueOf(value)),
 				index,
 				isSelected,
 				cellHasFocus

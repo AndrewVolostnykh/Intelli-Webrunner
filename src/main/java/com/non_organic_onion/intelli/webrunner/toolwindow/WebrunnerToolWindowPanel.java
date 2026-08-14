@@ -8,12 +8,14 @@ import com.non_organic_onion.intelli.webrunner.kafka.KafkaListenerService;
 import com.non_organic_onion.intelli.webrunner.kafka.KafkaMessageProducer;
 import com.non_organic_onion.intelli.webrunner.kafka.KafkaMetadataService;
 import com.non_organic_onion.intelli.webrunner.io.HttpFileCodec;
+import com.non_organic_onion.intelli.webrunner.io.HttpFileExportService;
+import com.non_organic_onion.intelli.webrunner.io.HttpFileImportService;
 import com.non_organic_onion.intelli.webrunner.io.HttpFileRequest;
 import com.non_organic_onion.intelli.webrunner.io.OpenApiCodec;
+import com.non_organic_onion.intelli.webrunner.io.OpenApiImportExportService;
 import com.non_organic_onion.intelli.webrunner.script.ScriptRuntime;
-import com.non_organic_onion.intelli.webrunner.state.FormEntryState;
 import com.non_organic_onion.intelli.webrunner.state.GlobalWebrunnerStateService;
-import com.non_organic_onion.intelli.webrunner.state.HeaderEntryState;
+import com.non_organic_onion.intelli.webrunner.state.IntellijGlobalContextStore;
 import com.non_organic_onion.intelli.webrunner.state.NodeState;
 import com.non_organic_onion.intelli.webrunner.state.NodeType;
 import com.non_organic_onion.intelli.webrunner.state.RequestDetailsState;
@@ -39,15 +41,11 @@ import com.non_organic_onion.intelli.webrunner.ui.TextToolDialog;
 import com.non_organic_onion.intelli.webrunner.ui.UrlToolDialog;
 import com.non_organic_onion.intelli.webrunner.ui.UuidGeneratorDialog;
 import com.non_organic_onion.intelli.webrunner.ui.WebrunnerInfoDialog;
-import com.non_organic_onion.intelli.webrunner.util.ContentDispositionUtils;
 import com.non_organic_onion.intelli.webrunner.util.CurlCommandBuilder;
 import com.non_organic_onion.intelli.webrunner.util.CurlCommandParser;
 import com.non_organic_onion.intelli.webrunner.util.CurlRequest;
 import com.non_organic_onion.intelli.webrunner.util.FileNameUtils;
-import com.non_organic_onion.intelli.webrunner.util.JsonUtils;
-import com.non_organic_onion.intelli.webrunner.util.StateCopyUtils;
 import com.non_organic_onion.intelli.webrunner.util.TemplateEngine;
-import com.non_organic_onion.intelli.webrunner.util.UrlParamUtils;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
@@ -92,13 +90,8 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 
@@ -147,7 +140,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 				httpExecutor,
 				grpcExecutor,
 				kafkaMessageProducer,
-				stateService
+				new IntellijGlobalContextStore(stateService)
 			);
 		this.moreButton = new JButton("...");
 		this.devToolsButton = new JButton("", AllIcons.General.ExternalTools);
@@ -604,7 +597,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 			return;
 		}
 		File selectedFile = chooser.getSelectedFile();
-		if (selectedFile != null && hasHttpExtension(selectedFile)) {
+		if (selectedFile != null && FileNameUtils.hasHttpExtension(selectedFile)) {
 			importHttpFile(selectedFile);
 			return;
 		}
@@ -650,7 +643,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		chooser.addChoosableFileFilter(httpFilter);
 		if (currentNode != null && currentNode.requestType == RequestType.HTTP) {
 			chooser.setFileFilter(httpFilter);
-			chooser.setSelectedFile(new File(safeFileName(currentNode.name) + ".http"));
+			chooser.setSelectedFile(new File(FileNameUtils.safeFileName(currentNode.name) + ".http"));
 		} else {
 			chooser.setFileFilter(jsonFilter);
 			chooser.setSelectedFile(new File("intelli-webrunner.json"));
@@ -661,13 +654,13 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		}
 		try {
 			File selectedFile = chooser.getSelectedFile();
-			boolean exportHttp = (chooser.getFileFilter() == httpFilter) || hasHttpExtension(selectedFile);
+			boolean exportHttp = (chooser.getFileFilter() == httpFilter) || FileNameUtils.hasHttpExtension(selectedFile);
 			if (exportHttp) {
-				exportHttpRequest(ensureExtension(selectedFile, "http"));
+				exportHttpRequest(FileNameUtils.ensureExtension(selectedFile, "http"));
 				return;
 			}
 			mapper.writerWithDefaultPrettyPrinter()
-				.writeValue(ensureExtension(selectedFile, "json"), stateService.exportState());
+				.writeValue(FileNameUtils.ensureExtension(selectedFile, "json"), stateService.exportState());
 		} catch (Exception error) {
 			TaskbarWindowSupport.showMessageDialog(
 				root,
@@ -736,7 +729,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		try {
 			File selectedFile = chooser.getSelectedFile();
 			mapper.writerWithDefaultPrettyPrinter()
-				.writeValue(ensureExtension(selectedFile, "json"), stateService.exportState());
+				.writeValue(FileNameUtils.ensureExtension(selectedFile, "json"), stateService.exportState());
 		} catch (Exception error) {
 			TaskbarWindowSupport.showMessageDialog(
 				root,
@@ -771,7 +764,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		chooser.addChoosableFileFilter(httpFilter);
 		chooser.setFileFilter(httpFilter);
 		if (currentNode != null && currentNode.requestType == RequestType.HTTP) {
-			chooser.setSelectedFile(new File(safeFileName(currentNode.name) + ".http"));
+			chooser.setSelectedFile(new File(FileNameUtils.safeFileName(currentNode.name) + ".http"));
 		} else {
 			chooser.setSelectedFile(new File("request.http"));
 		}
@@ -779,7 +772,7 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		if (result != JFileChooser.APPROVE_OPTION) {
 			return;
 		}
-		File selectedFile = ensureExtension(chooser.getSelectedFile(), "http");
+		File selectedFile = FileNameUtils.ensureExtension(chooser.getSelectedFile(), "http");
 		exportHttpRequest(selectedFile);
 	}
 
@@ -838,12 +831,12 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		chooser.setFileFilter(httpFilter);
 		String baseName =
 			selection.displayName == null || selection.displayName.isBlank() ? "requests" : selection.displayName;
-		chooser.setSelectedFile(new File(safeFileName(baseName) + ".http"));
+		chooser.setSelectedFile(new File(FileNameUtils.safeFileName(baseName) + ".http"));
 		int result = TaskbarWindowSupport.showSaveDialog(chooser, root);
 		if (result != JFileChooser.APPROVE_OPTION) {
 			return;
 		}
-		File selectedFile = ensureExtension(chooser.getSelectedFile(), "http");
+		File selectedFile = FileNameUtils.ensureExtension(chooser.getSelectedFile(), "http");
 		exportHttpRequests(selectedFile, requests);
 	}
 
@@ -902,12 +895,12 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		chooser.setFileFilter(jsonFilter);
 		String baseName =
 			selection.displayName == null || selection.displayName.isBlank() ? "openapi" : selection.displayName;
-		chooser.setSelectedFile(new File(safeFileName(baseName) + "-openapi.json"));
+		chooser.setSelectedFile(new File(FileNameUtils.safeFileName(baseName) + "-openapi.json"));
 		int result = TaskbarWindowSupport.showSaveDialog(chooser, root);
 		if (result != JFileChooser.APPROVE_OPTION) {
 			return;
 		}
-		File selectedFile = ensureExtension(chooser.getSelectedFile(), "json");
+		File selectedFile = FileNameUtils.ensureExtension(chooser.getSelectedFile(), "json");
 		exportOpenApiFile(selectedFile, requests, selection.displayName);
 	}
 
@@ -930,23 +923,17 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 				);
 				return;
 			}
-			for (HttpFileRequest request : requests) {
-				if (request == null || request.method == null || request.url == null) {
-					continue;
-				}
-				String name = (request.name == null || request.name.isBlank())
-					? request.method + " " + request.url
-					: request.name;
-				NodeState node = stateService.createRequest(name, RequestType.HTTP, parentId);
+			for (HttpFileImportService.ImportItem item : HttpFileImportService.buildImportPlan(requests)) {
+				NodeState node = stateService.createRequest(item.name(), RequestType.HTTP, parentId);
 				RequestDetailsState details = stateService.getRequestDetails(node.id);
 				if (details == null) {
 					details = new RequestDetailsState();
 					details.requestId = node.id;
 				}
 				details.type = RequestType.HTTP;
-				details.method = request.method;
-				details.url = request.url;
-				details.payloadType = "RAW";
+				details.method = item.method();
+				details.url = item.url();
+				details.payloadType = item.payloadType();
 				stateService.saveRequestDetails(details);
 
 				RequestStatusState status = stateService.getRequestStatus(node.id);
@@ -954,15 +941,15 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 					status = new RequestStatusState();
 					status.requestId = node.id;
 				}
-				status.requestBody = request.body == null ? "" : request.body;
-				status.requestHeaders = request.headers == null ? new ArrayList<>() : new ArrayList<>(request.headers);
-				status.requestParams = parseQueryParams(details.url);
+				status.requestBody = item.body();
+				status.requestHeaders = item.headers();
+				status.requestParams = item.params();
 				status.responseBody = "";
 				status.responseHeaders = "";
 				status.responseCookies = "";
 				status.logs = "";
-				status.beforeScript = "";
-				status.afterScript = "";
+				status.beforeScript = item.beforeScript();
+				status.afterScript = item.afterScript();
 				stateService.saveRequestStatus(status);
 			}
 			currentNode = null;
@@ -995,39 +982,9 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 			TaskbarWindowSupport.showMessageDialog(root, "Missing request URL.", "Export error", JOptionPane.ERROR_MESSAGE);
 			return;
 		}
-		String method = details.method == null ? "GET" : details.method;
-		String url = applyQueryParams(details.url, status != null ? status.requestParams : List.of());
-		String body = status != null ? safe(status.requestBody) : "";
-		List<HeaderEntryState> headers = status != null ? status.requestHeaders : List.of();
-
-		StringBuilder builder = new StringBuilder();
-		String name = safe(currentNode.name);
-		if (!name.isBlank()) {
-			builder.append("### ").append(name).append("\n");
-		}
-		builder.append(method).append(" ").append(url).append("\n");
-		if (headers != null) {
-			for (HeaderEntryState header : headers) {
-				if (header == null || !header.enabled) {
-					continue;
-				}
-				String headerName = header.name == null ? "" : header.name.trim();
-				if (headerName.isEmpty()) {
-					continue;
-				}
-				String headerValue = header.value == null ? "" : header.value;
-				builder.append(headerName).append(": ").append(headerValue).append("\n");
-			}
-		}
-		if (body != null && !body.isBlank()) {
-			builder.append("\n");
-			builder.append(body);
-			if (!body.endsWith("\n")) {
-				builder.append("\n");
-			}
-		}
+		String export = HttpFileExportService.buildRequestBlock(currentNode, details, status);
 		try {
-			Files.writeString(file.toPath(), builder.toString(), StandardCharsets.UTF_8);
+			Files.writeString(file.toPath(), export, StandardCharsets.UTF_8);
 		} catch (Exception error) {
 			TaskbarWindowSupport.showMessageDialog(
 				root,
@@ -1045,20 +1002,19 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		if (requests == null || requests.isEmpty()) {
 			return;
 		}
-		StringBuilder builder = new StringBuilder();
-		boolean first = true;
+		List<HttpFileExportService.RequestExportItem> exportItems = new ArrayList<>();
 		for (NodeState node : requests) {
 			if (node == null || node.requestType != RequestType.HTTP) {
 				continue;
 			}
-			if (!first) {
-				builder.append("\n");
-			}
-			builder.append(buildHttpBlock(node));
-			first = false;
+			exportItems.add(new HttpFileExportService.RequestExportItem(
+				node,
+				stateService.getRequestDetails(node.id),
+				stateService.getRequestStatus(node.id)
+			));
 		}
 		try {
-			Files.writeString(file.toPath(), builder.toString(), StandardCharsets.UTF_8);
+			Files.writeString(file.toPath(), HttpFileExportService.buildRequestsFile(exportItems), StandardCharsets.UTF_8);
 		} catch (Exception error) {
 			TaskbarWindowSupport.showMessageDialog(
 				root,
@@ -1069,102 +1025,25 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		}
 	}
 
-	private String buildHttpBlock(NodeState node) {
-		RequestDetailsState details = stateService.getRequestDetails(node.id);
-		RequestStatusState status = stateService.getRequestStatus(node.id);
-		if (details == null || details.url == null || details.url.isBlank()) {
-			return "";
-		}
-		String method = details.method == null ? "GET" : details.method;
-		String url = applyQueryParams(details.url, status != null ? status.requestParams : List.of());
-		String body = status != null ? safe(status.requestBody) : "";
-		List<HeaderEntryState> headers = status != null ? status.requestHeaders : List.of();
-		return HttpFileCodec.buildBlock(node.name, method, url, body, headers);
-	}
-
-	private boolean isHttpComment(String line) {
-		return FileNameUtils.isHttpComment(line);
-	}
-
-	private boolean hasHttpExtension(File file) {
-		return FileNameUtils.hasHttpExtension(file);
-	}
-
-	private File ensureExtension(
-		File file,
-		String extension
-	) {
-		return FileNameUtils.ensureExtension(file, extension);
-	}
-
-	private String safeFileName(String value) {
-		return FileNameUtils.safeFileName(value);
-	}
-
 	private void exportOpenApiFile(
 		File file,
 		List<NodeState> requests,
 		String title
 	) {
 		OpenApiCodec codec = new OpenApiCodec(mapper);
-		Map<String, Object> doc = new LinkedHashMap<>();
-		doc.put("openapi", "3.0.3");
-		Map<String, Object> info = new LinkedHashMap<>();
-		info.put("title", title == null || title.isBlank() ? "Webrunner Export" : title);
-		info.put("version", "1.0.0");
-		doc.put("info", info);
-
-		Map<String, Object> paths = new LinkedHashMap<>();
-		Map<String, NodeState> nodeById = new HashMap<>();
-		for (NodeState node : stateService.exportState().nodes) {
-			nodeById.put(node.id, node);
-		}
-
+		List<OpenApiImportExportService.ExportItem> exportItems = new ArrayList<>();
 		for (NodeState node : requests) {
 			if (node == null) {
 				continue;
 			}
-			RequestDetailsState details = stateService.getRequestDetails(node.id);
-			RequestStatusState status = stateService.getRequestStatus(node.id);
-			if (details == null || details.url == null || details.url.isBlank()) {
-				continue;
-			}
-			String method = details.method == null ? "get" : details.method.toLowerCase(Locale.ROOT);
-			OpenApiCodec.ParsedUrl parsed = codec.parseUrl(details.url);
-			String path = parsed.path;
-			Map<String, Object> pathItem =
-				(Map<String, Object>) paths.computeIfAbsent(path, key -> new LinkedHashMap<>());
-
-			Map<String, Object> operation = new LinkedHashMap<>();
-			operation.put("summary", safe(node.name));
-			operation.put("operationId", codec.buildOperationId(node));
-			operation.put("responses", Map.of("200", Map.of("description", "OK")));
-			if (parsed.serverUrl != null) {
-				operation.put("servers", List.of(Map.of("url", parsed.serverUrl)));
-			}
-
-			List<String> tags = codec.buildFolderTags(node, nodeById);
-			if (!tags.isEmpty()) {
-				operation.put("tags", tags);
-			}
-
-			List<Map<String, Object>> parameters = codec.buildOpenApiParameters(status, details);
-			if (!parameters.isEmpty()) {
-				operation.put("parameters", parameters);
-			}
-
-			Object requestBody = codec.buildOpenApiRequestBody(status);
-			if (requestBody != null) {
-				operation.put("requestBody", requestBody);
-			}
-
-			Map<String, Object> vendor = codec.buildVendorExtension(node, details, status);
-			operation.put("x-webrunner", vendor);
-
-			pathItem.put(method, operation);
+			exportItems.add(new OpenApiImportExportService.ExportItem(
+				node,
+				stateService.getRequestDetails(node.id),
+				stateService.getRequestStatus(node.id)
+			));
 		}
-
-		doc.put("paths", paths);
+		Map<String, Object> doc =
+			OpenApiImportExportService.buildDocument(codec, title, stateService.exportState().nodes, exportItems);
 		try {
 			mapper.writerWithDefaultPrettyPrinter().writeValue(file, doc);
 		} catch (Exception error) {
@@ -1194,8 +1073,9 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 				);
 				return;
 			}
-			Object pathsObj = doc.get("paths");
-			if (!(pathsObj instanceof Map<?, ?> paths)) {
+			List<OpenApiImportExportService.ImportItem> importItems =
+				OpenApiImportExportService.buildImportPlan(codec, doc);
+			if (!(doc.get("paths") instanceof Map<?, ?>)) {
 				TaskbarWindowSupport.showMessageDialog(
 					root,
 					"OpenAPI file has no paths.",
@@ -1204,57 +1084,36 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 				);
 				return;
 			}
-			int created = 0;
-			for (Map.Entry<?, ?> entry : paths.entrySet()) {
-				String path = String.valueOf(entry.getKey());
-				Object pathItemObj = entry.getValue();
-				if (!(pathItemObj instanceof Map<?, ?> pathItem)) {
-					continue;
+			for (OpenApiImportExportService.ImportItem item : importItems) {
+				NodeState node = stateService.createRequest(item.name(), RequestType.HTTP, parentId);
+				RequestDetailsState details = stateService.getRequestDetails(node.id);
+				if (details == null) {
+					details = new RequestDetailsState();
+					details.requestId = node.id;
 				}
-				for (Map.Entry<?, ?> opEntry : pathItem.entrySet()) {
-					String method = String.valueOf(opEntry.getKey()).toUpperCase(Locale.ROOT);
-					if (!codec.isHttpMethod(method)) {
-						continue;
-					}
-					Object operationObj = opEntry.getValue();
-					if (!(operationObj instanceof Map<?, ?> operation)) {
-						continue;
-					}
-					String url = codec.resolveOperationUrl(doc, pathItem, operation, path);
-					OpenApiCodec.RequestData requestData = codec.readVendorRequestData(operation, pathItem, method, url);
-					NodeState node = stateService.createRequest(requestData.name, RequestType.HTTP, parentId);
-					RequestDetailsState details = stateService.getRequestDetails(node.id);
-					if (details == null) {
-						details = new RequestDetailsState();
-						details.requestId = node.id;
-					}
-					details.type = RequestType.HTTP;
-					details.method = requestData.method;
-					details.url = requestData.url;
-					details.payloadType = "RAW";
-					stateService.saveRequestDetails(details);
+				details.type = RequestType.HTTP;
+				details.method = item.method();
+				details.url = item.url();
+				details.payloadType = item.payloadType();
+				stateService.saveRequestDetails(details);
 
-					RequestStatusState status = stateService.getRequestStatus(node.id);
-					if (status == null) {
-						status = new RequestStatusState();
-						status.requestId = node.id;
-					}
-					status.requestBody = requestData.body == null ? "" : requestData.body;
-					status.requestHeaders =
-						requestData.headers == null ? new ArrayList<>() : new ArrayList<>(requestData.headers);
-					status.requestParams =
-						requestData.params == null ? new ArrayList<>() : new ArrayList<>(requestData.params);
-					status.responseBody = "";
-					status.responseHeaders = "";
-					status.responseCookies = "";
-					status.logs = "";
-					status.beforeScript = requestData.beforeScript == null ? "" : requestData.beforeScript;
-					status.afterScript = requestData.afterScript == null ? "" : requestData.afterScript;
-					stateService.saveRequestStatus(status);
-					created++;
+				RequestStatusState status = stateService.getRequestStatus(node.id);
+				if (status == null) {
+					status = new RequestStatusState();
+					status.requestId = node.id;
 				}
+				status.requestBody = item.body();
+				status.requestHeaders = item.headers();
+				status.requestParams = item.params();
+				status.responseBody = "";
+				status.responseHeaders = "";
+				status.responseCookies = "";
+				status.logs = "";
+				status.beforeScript = item.beforeScript();
+				status.afterScript = item.afterScript();
+				stateService.saveRequestStatus(status);
 			}
-			if (created == 0) {
+			if (importItems.isEmpty()) {
 				TaskbarWindowSupport.showMessageDialog(
 					root,
 					"No HTTP operations found in OpenAPI file.",
@@ -1452,115 +1311,8 @@ public class WebrunnerToolWindowPanel implements com.intellij.openapi.Disposable
 		responseViewer.showLog(message);
 	}
 
-	private String suggestDownloadFilename(Map<String, List<String>> headers) {
-		return ContentDispositionUtils.suggestDownloadFilename(headers);
-	}
-
 	private String safe(String value) {
 		return value == null ? "" : value;
-	}
-
-	private String applyQueryParams(
-		String url,
-		List<HeaderEntryState> params
-	) {
-		if (url == null) {
-			return "";
-		}
-		if (params == null || params.isEmpty()) {
-			return url;
-		}
-		String base = url;
-		String fragment = "";
-		int hashIndex = url.indexOf('#');
-		if (hashIndex >= 0) {
-			base = url.substring(0, hashIndex);
-			fragment = url.substring(hashIndex);
-		}
-		StringBuilder builder = new StringBuilder(base);
-		boolean hasQuery = base.contains("?");
-		boolean needsSeparator = hasQuery && !base.endsWith("?") && !base.endsWith("&");
-		Set<String> existingPairs = collectQueryPairs(base);
-
-		for (HeaderEntryState param : params) {
-			if (param == null || !param.enabled) {
-				continue;
-			}
-			String name = param.name == null ? "" : param.name.trim();
-			if (name.isEmpty()) {
-				continue;
-			}
-			String value = param.value == null ? "" : param.value;
-			String dedupeKey = name + "\u0000" + value;
-			if (existingPairs.contains(dedupeKey)) {
-				continue;
-			}
-			if (!hasQuery) {
-				builder.append('?');
-				hasQuery = true;
-				needsSeparator = false;
-			} else if (needsSeparator) {
-				builder.append('&');
-			}
-			builder.append(encodeParam(name));
-			builder.append('=');
-			builder.append(encodeParam(value));
-			needsSeparator = true;
-		}
-
-		return builder.append(fragment).toString();
-	}
-
-	private String replaceQueryParams(
-		String url,
-		List<HeaderEntryState> params
-	) {
-		return UrlParamUtils.replaceQueryParams(url, params);
-	}
-
-	private String encodeParam(String value) {
-		return UrlParamUtils.encodeParam(value);
-	}
-
-	private List<HeaderEntryState> mergeParamsWithUrl(
-		List<HeaderEntryState> params,
-		String url
-	) {
-		return UrlParamUtils.mergeParamsWithUrl(params, url);
-	}
-
-	private List<HeaderEntryState> parseQueryParams(String url) {
-		return UrlParamUtils.parseQueryParams(url);
-	}
-
-	private Set<String> collectQueryPairs(String url) {
-		Set<String> pairs = new HashSet<>();
-		for (HeaderEntryState entry : parseQueryParams(url)) {
-			String name = entry.name == null ? "" : entry.name;
-			String value = entry.value == null ? "" : entry.value;
-			pairs.add(name + "\u0000" + value);
-		}
-		return pairs;
-	}
-
-	private String decodeParam(String value) {
-		try {
-			return java.net.URLDecoder.decode(value, StandardCharsets.UTF_8);
-		} catch (Exception ignored) {
-			return value;
-		}
-	}
-
-	private List<HeaderEntryState> cloneHeaders(List<HeaderEntryState> headers) {
-		return StateCopyUtils.cloneHeaders(headers);
-	}
-
-	private List<FormEntryState> cloneFormData(List<FormEntryState> entries) {
-		return StateCopyUtils.cloneFormData(entries);
-	}
-
-	private String toJson(Object value) {
-		return JsonUtils.toJson(value);
 	}
 
 	private void openResponseWindow() {

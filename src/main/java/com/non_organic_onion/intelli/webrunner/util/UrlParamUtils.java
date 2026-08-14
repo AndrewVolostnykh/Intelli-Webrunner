@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -232,6 +233,40 @@ public final class UrlParamUtils {
 		return parseQueryParams(url);
 	}
 
+	public static List<HeaderEntryState> paramsForHttpUrl(
+		List<HeaderEntryState> storedParams,
+		String url
+	) {
+		return hasQuery(url) ? queryParamsFromUrl(url) : storedParams;
+	}
+
+	public static boolean paramsEqual(
+		List<HeaderEntryState> first,
+		List<HeaderEntryState> second
+	) {
+		List<HeaderEntryState> left = first == null ? List.of() : first;
+		List<HeaderEntryState> right = second == null ? List.of() : second;
+		if (left.size() != right.size()) {
+			return false;
+		}
+		for (int index = 0; index < left.size(); index++) {
+			HeaderEntryState a = left.get(index);
+			HeaderEntryState b = right.get(index);
+			if (a == null || b == null) {
+				if (a != b) {
+					return false;
+				}
+				continue;
+			}
+			if (a.enabled != b.enabled
+				|| !Objects.equals(safe(a.name), safe(b.name))
+				|| !Objects.equals(safe(a.value), safe(b.value))) {
+				return false;
+			}
+		}
+		return true;
+	}
+
 	public static boolean hasQuery(String url) {
 		if (url == null) {
 			return false;
@@ -272,5 +307,9 @@ public final class UrlParamUtils {
 		}
 		char next = url.charAt("localhost".length());
 		return next == ':' || next == '/' || next == '?' || next == '#';
+	}
+
+	private static String safe(String value) {
+		return value == null ? "" : value;
 	}
 }

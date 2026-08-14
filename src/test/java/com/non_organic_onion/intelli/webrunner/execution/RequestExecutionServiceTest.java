@@ -11,6 +11,7 @@ import com.non_organic_onion.intelli.webrunner.state.FormEntryState;
 import com.non_organic_onion.intelli.webrunner.state.GlobalContextState;
 import com.non_organic_onion.intelli.webrunner.state.GlobalWebrunnerStateService;
 import com.non_organic_onion.intelli.webrunner.state.HeaderEntryState;
+import com.non_organic_onion.intelli.webrunner.state.IntellijGlobalContextStore;
 import com.non_organic_onion.intelli.webrunner.state.RequestDetailsState;
 import com.non_organic_onion.intelli.webrunner.state.RequestType;
 import com.non_organic_onion.intelli.webrunner.util.TemplateEngine;
@@ -448,7 +449,7 @@ class RequestExecutionServiceTest {
 			new HttpExecutor(),
 			grpcExecutor,
 			new KafkaMessageProducer(),
-			stateService
+			new IntellijGlobalContextStore(stateService)
 		);
 		RequestDetailsState details = new RequestDetailsState();
 		details.type = RequestType.GRPC;
@@ -472,7 +473,7 @@ class RequestExecutionServiceTest {
 			new HttpExecutor(),
 			grpcExecutor,
 			new KafkaMessageProducer(),
-			new GlobalWebrunnerStateService()
+			new IntellijGlobalContextStore(new GlobalWebrunnerStateService())
 		);
 		RequestDetailsState details = new RequestDetailsState();
 		details.type = RequestType.GRPC;
@@ -494,7 +495,7 @@ class RequestExecutionServiceTest {
 			new HttpExecutor(),
 			new CapturingGrpcExecutor(),
 			kafkaProducer,
-			new GlobalWebrunnerStateService()
+			new IntellijGlobalContextStore(new GlobalWebrunnerStateService())
 		);
 		RequestDetailsState details = new RequestDetailsState();
 		details.type = RequestType.KAFKA;
@@ -540,7 +541,7 @@ class RequestExecutionServiceTest {
 			httpExecutor,
 			new CapturingGrpcExecutor(),
 			new KafkaMessageProducer(),
-			stateService
+			new IntellijGlobalContextStore(stateService)
 		);
 	}
 

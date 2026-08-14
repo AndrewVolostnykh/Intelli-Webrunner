@@ -1,5 +1,6 @@
 package com.non_organic_onion.intelli.webrunner.ui;
 
+import com.non_organic_onion.intelli.webrunner.util.UrlTextService;
 import com.intellij.openapi.project.Project;
 import com.intellij.ui.components.JBScrollPane;
 
@@ -15,8 +16,6 @@ import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
-import java.io.ByteArrayOutputStream;
-import java.nio.charset.StandardCharsets;
 
 public final class UrlToolPanel {
 	private final JPanel root = new JPanel(new BorderLayout());
@@ -91,7 +90,7 @@ public final class UrlToolPanel {
 		}
 		updating = true;
 		try {
-			decodeField.setText(encodeUrl(encodeField.getText()));
+			decodeField.setText(UrlTextService.encode(encodeField.getText()));
 		} finally {
 			updating = false;
 		}
@@ -103,92 +102,10 @@ public final class UrlToolPanel {
 		}
 		updating = true;
 		try {
-			encodeField.setText(decodeUrl(decodeField.getText()));
+			encodeField.setText(UrlTextService.decode(decodeField.getText()));
 		} finally {
 			updating = false;
 		}
-	}
-
-	private static String encodeUrl(String value) {
-		if (value == null || value.isEmpty()) {
-			return "";
-		}
-		StringBuilder builder = new StringBuilder();
-		for (int offset = 0; offset < value.length(); ) {
-			int codePoint = value.codePointAt(offset);
-			if (isAllowedUrlCharacter(codePoint)) {
-				builder.appendCodePoint(codePoint);
-			} else {
-				byte[] bytes = new String(Character.toChars(codePoint)).getBytes(StandardCharsets.UTF_8);
-				for (byte singleByte : bytes) {
-					builder.append('%');
-					String hex = Integer.toHexString(singleByte & 0xff).toUpperCase(java.util.Locale.ROOT);
-					if (hex.length() == 1) {
-						builder.append('0');
-					}
-					builder.append(hex);
-				}
-			}
-			offset += Character.charCount(codePoint);
-		}
-		return builder.toString();
-	}
-
-	private static String decodeUrl(String value) {
-		if (value == null || value.isEmpty()) {
-			return "";
-		}
-		StringBuilder builder = new StringBuilder();
-		ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-		for (int index = 0; index < value.length(); ) {
-			char character = value.charAt(index);
-			if (character == '%' && index + 2 < value.length()) {
-				int decoded = parseHex(value.charAt(index + 1), value.charAt(index + 2));
-				if (decoded >= 0) {
-					bytes.write(decoded);
-					index += 3;
-					continue;
-				}
-			}
-			flushBytes(builder, bytes);
-			builder.append(character == '+' ? ' ' : character);
-			index++;
-		}
-		flushBytes(builder, bytes);
-		return builder.toString();
-	}
-
-	private static void flushBytes(
-		StringBuilder builder,
-		ByteArrayOutputStream bytes
-	) {
-		if (bytes.size() == 0) {
-			return;
-		}
-		builder.append(bytes.toString(StandardCharsets.UTF_8));
-		bytes.reset();
-	}
-
-	private static int parseHex(
-		char first,
-		char second
-	) {
-		int high = Character.digit(first, 16);
-		int low = Character.digit(second, 16);
-		if (high < 0 || low < 0) {
-			return -1;
-		}
-		return (high << 4) + low;
-	}
-
-	private static boolean isAllowedUrlCharacter(int codePoint) {
-		return isAlphaNumeric(codePoint) || "-._~:/?#[]@!$&'()*+,;=".indexOf(codePoint) >= 0;
-	}
-
-	private static boolean isAlphaNumeric(int codePoint) {
-		return (codePoint >= 'a' && codePoint <= 'z')
-			|| (codePoint >= 'A' && codePoint <= 'Z')
-			|| (codePoint >= '0' && codePoint <= '9');
 	}
 
 	private static JTextArea createTextField(Project project) {

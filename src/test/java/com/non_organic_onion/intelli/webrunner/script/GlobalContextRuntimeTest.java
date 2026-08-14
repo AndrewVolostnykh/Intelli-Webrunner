@@ -3,6 +3,7 @@ package com.non_organic_onion.intelli.webrunner.script;
 import com.non_organic_onion.intelli.webrunner.state.GlobalContextState;
 import com.non_organic_onion.intelli.webrunner.state.GlobalWebrunnerStateService;
 import com.non_organic_onion.intelli.webrunner.state.HeaderEntryState;
+import com.non_organic_onion.intelli.webrunner.state.IntellijGlobalContextStore;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -30,7 +31,8 @@ class GlobalContextRuntimeTest {
 		stateService.saveGlobalContext(state);
 		List<String> logs = new ArrayList<>();
 
-		VarsStore globalContext = new GlobalContextRuntime(stateService, new ScriptRuntime()).loadAndRun(logs::add);
+		VarsStore globalContext =
+			new GlobalContextRuntime(new IntellijGlobalContextStore(stateService), new ScriptRuntime()).loadAndRun(logs::add);
 
 		assertEquals("AAA", globalContext.get("text"));
 		assertEquals(43.0, globalContext.get("intValue"));
@@ -52,7 +54,8 @@ class GlobalContextRuntimeTest {
 		VarsStore vars = new VarsStore();
 		vars.add("shared", "local");
 
-		Map<String, Object> merged = new GlobalContextRuntime(new GlobalWebrunnerStateService(), new ScriptRuntime())
+		Map<String, Object> merged =
+			new GlobalContextRuntime(new IntellijGlobalContextStore(new GlobalWebrunnerStateService()), new ScriptRuntime())
 			.mergeForTemplates(globalContext, vars);
 
 		assertEquals("local", merged.get("shared"));
@@ -70,7 +73,8 @@ class GlobalContextRuntimeTest {
 		VarsStore vars = new VarsStore();
 		vars.add("shared", "request");
 
-		Map<String, Object> merged = new GlobalContextRuntime(new GlobalWebrunnerStateService(), new ScriptRuntime())
+		Map<String, Object> merged =
+			new GlobalContextRuntime(new IntellijGlobalContextStore(new GlobalWebrunnerStateService()), new ScriptRuntime())
 			.mergeForTemplates(globalContext, chainContext, vars);
 
 		assertEquals("request", merged.get("shared"));

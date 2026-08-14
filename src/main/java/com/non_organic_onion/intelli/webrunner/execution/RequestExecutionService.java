@@ -6,6 +6,7 @@ import com.non_organic_onion.intelli.webrunner.kafka.KafkaMessageProducer;
 import com.non_organic_onion.intelli.webrunner.kafka.KafkaSendRequest;
 import com.non_organic_onion.intelli.webrunner.kafka.KafkaSendResult;
 import com.non_organic_onion.intelli.webrunner.script.GlobalContextRuntime;
+import com.non_organic_onion.intelli.webrunner.script.GlobalContextStore;
 import com.non_organic_onion.intelli.webrunner.script.ScriptContext;
 import com.non_organic_onion.intelli.webrunner.script.ScriptFlowControl;
 import com.non_organic_onion.intelli.webrunner.script.ScriptHelpers;
@@ -14,7 +15,6 @@ import com.non_organic_onion.intelli.webrunner.script.ScriptRequest;
 import com.non_organic_onion.intelli.webrunner.script.ScriptRuntime;
 import com.non_organic_onion.intelli.webrunner.script.VarsStore;
 import com.non_organic_onion.intelli.webrunner.state.FormEntryState;
-import com.non_organic_onion.intelli.webrunner.state.GlobalWebrunnerStateService;
 import com.non_organic_onion.intelli.webrunner.state.HeaderEntryState;
 import com.non_organic_onion.intelli.webrunner.state.RequestDetailsState;
 import com.non_organic_onion.intelli.webrunner.util.JsonUtils;
@@ -38,6 +38,7 @@ import java.util.Map;
 public final class RequestExecutionService {
 	private static final int DEFAULT_TIMEOUT_MILLIS = 0;
 
+	private final RequestTimeoutPolicy timeoutPolicy = new RequestTimeoutPolicy();
 	private final TemplateEngine templateEngine;
 	private final ScriptRuntime scriptRuntime;
 	private final HttpExecutor httpExecutor;
@@ -51,14 +52,14 @@ public final class RequestExecutionService {
 		HttpExecutor httpExecutor,
 		GrpcExecutor grpcExecutor,
 		KafkaMessageProducer kafkaMessageProducer,
-		GlobalWebrunnerStateService stateService
+		GlobalContextStore globalContextStore
 	) {
 		this.templateEngine = templateEngine;
 		this.scriptRuntime = scriptRuntime;
 		this.httpExecutor = httpExecutor;
 		this.grpcExecutor = grpcExecutor;
 		this.kafkaMessageProducer = kafkaMessageProducer;
-		this.globalContextRuntime = new GlobalContextRuntime(stateService, scriptRuntime);
+		this.globalContextRuntime = new GlobalContextRuntime(globalContextStore, scriptRuntime);
 	}
 
 	public ExecutionResult executeWithScripts(
@@ -1005,7 +1006,7 @@ public final class RequestExecutionService {
 	}
 
 	private int normalizeTimeout(int timeoutMillis) {
-		return Math.max(0, timeoutMillis);
+		return timeoutPolicy.normalize(timeoutMillis);
 	}
 
 	private ExecutionResult controlResult(
