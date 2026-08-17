@@ -1,6 +1,6 @@
 package com.non_organic_onion.intelli.webrunner.ui;
 
-import com.non_organic_onion.intelli.webrunner.util.UuidService;
+import com.non_organic_onion.webrunner.core.util.UuidService;
 
 import javax.swing.JButton;
 import javax.swing.JComponent;

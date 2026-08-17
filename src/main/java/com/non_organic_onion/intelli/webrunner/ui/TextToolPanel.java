@@ -1,7 +1,7 @@
 package com.non_organic_onion.intelli.webrunner.ui;
 
-import com.non_organic_onion.intelli.webrunner.util.JsonTextOperations;
-import com.non_organic_onion.intelli.webrunner.util.TextFormatting;
+import com.non_organic_onion.webrunner.core.util.JsonTextOperations;
+import com.non_organic_onion.webrunner.core.util.TextFormatting;
 import com.intellij.openapi.fileTypes.PlainTextFileType;
 import com.intellij.openapi.project.Project;
 import com.intellij.ui.EditorTextField;

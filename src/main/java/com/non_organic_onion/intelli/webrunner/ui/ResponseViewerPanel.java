@@ -1,9 +1,9 @@
 package com.non_organic_onion.intelli.webrunner.ui;
 
-import com.non_organic_onion.intelli.webrunner.execution.DownloadResult;
-import com.non_organic_onion.intelli.webrunner.execution.ExecutionResult;
-import com.non_organic_onion.intelli.webrunner.execution.ResponseResultService;
-import com.non_organic_onion.intelli.webrunner.util.ContentDispositionUtils;
+import com.non_organic_onion.webrunner.core.execution.DownloadResult;
+import com.non_organic_onion.webrunner.core.execution.ExecutionResult;
+import com.non_organic_onion.webrunner.core.execution.ResponseResultService;
+import com.non_organic_onion.webrunner.core.util.ContentDispositionUtils;
 import com.intellij.json.JsonFileType;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;

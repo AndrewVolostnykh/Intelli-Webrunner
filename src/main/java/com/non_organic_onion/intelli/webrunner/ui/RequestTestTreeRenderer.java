@@ -1,6 +1,6 @@
 package com.non_organic_onion.intelli.webrunner.ui;
 
-import com.non_organic_onion.intelli.webrunner.state.RequestTestState;
+import com.non_organic_onion.webrunner.core.state.RequestTestState;
 import com.intellij.ui.JBColor;
 
 import javax.swing.BorderFactory;

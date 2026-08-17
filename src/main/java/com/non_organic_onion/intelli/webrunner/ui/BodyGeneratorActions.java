@@ -1,15 +1,20 @@
 package com.non_organic_onion.intelli.webrunner.ui;
 
-import com.non_organic_onion.intelli.webrunner.proto.ProtoBodyGenerator;
-import com.non_organic_onion.intelli.webrunner.proto.ProtoMessageSelection;
-import com.non_organic_onion.intelli.webrunner.util.JsonUtils;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.psi.search.FilenameIndex;
+import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.ui.EditorTextField;
 import com.intellij.ui.ListSpeedSearch;
 import com.intellij.ui.components.JBList;
 import com.intellij.ui.components.JBScrollPane;
+import com.non_organic_onion.intelli.webrunner.proto.ProtoImportIndex;
+import com.non_organic_onion.webrunner.core.util.JsonUtils;
+import com.non_organic_onion.webrunner.core.proto.ProtoBodyGenerator;
+import com.non_organic_onion.webrunner.core.proto.ProtoMessageSelection;
+import com.non_organic_onion.webrunner.core.proto.ProtoRegistry;
+import com.non_organic_onion.webrunner.core.proto.ProtoSource;
 
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
@@ -26,6 +31,7 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.GridLayout;
 import java.io.File;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
@@ -38,6 +44,7 @@ public final class BodyGeneratorActions {
 	private final Project project;
 	private final Component parent;
 	private final EditorTextField bodyField;
+	private ProtoRegistry selectedRegistry;
 
 	public BodyGeneratorActions(
 		Project project,
@@ -66,7 +73,8 @@ public final class BodyGeneratorActions {
 		if (selection == null) {
 			return;
 		}
-		Map<String, Object> body = new ProtoBodyGenerator(project).buildBody(selection, useNulls.isSelected());
+		Map<String, Object> body =
+			new ProtoBodyGenerator().buildBody(selection, selectedRegistry, useNulls.isSelected());
 		String json = JsonUtils.toJson(body);
 		bodyField.setText(json);
 		bodyField.requestFocusInWindow();
@@ -77,7 +85,13 @@ public final class BodyGeneratorActions {
 		if (file == null) {
 			return null;
 		}
-		List<ProtoMessageSelection> fileMessages = new ProtoBodyGenerator(project).loadMessages(file);
+		Collection<VirtualFile> files =
+			FilenameIndex.getAllFilesByExt(project, "proto", GlobalSearchScope.projectScope(project));
+		ProtoImportIndex index = new ProtoImportIndex(project, files);
+		ProtoSource root = index.sourceOfRoot(file);
+		ProtoBodyGenerator.LoadedProtoMessages loadedMessages = new ProtoBodyGenerator().loadMessages(root, index);
+		selectedRegistry = loadedMessages.registry();
+		List<ProtoMessageSelection> fileMessages = loadedMessages.selections();
 		if (fileMessages.isEmpty()) {
 			TaskbarWindowSupport.showMessageDialog(
 				parent,

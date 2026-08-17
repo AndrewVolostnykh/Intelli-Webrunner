@@ -1,7 +1,7 @@
 package com.non_organic_onion.intelli.webrunner.ui;
 
-import com.non_organic_onion.intelli.webrunner.util.DateTimeField;
-import com.non_organic_onion.intelli.webrunner.util.DateTimeTextService;
+import com.non_organic_onion.webrunner.core.util.DateTimeField;
+import com.non_organic_onion.webrunner.core.util.DateTimeTextService;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;

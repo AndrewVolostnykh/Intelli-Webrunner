@@ -7,6 +7,15 @@ import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.components.StoragePathMacros;
+import com.non_organic_onion.webrunner.core.state.ChainState;
+import com.non_organic_onion.webrunner.core.state.GlobalContextState;
+import com.non_organic_onion.webrunner.core.state.HeaderPresetState;
+import com.non_organic_onion.webrunner.core.state.NodeState;
+import com.non_organic_onion.webrunner.core.state.RequestDetailsState;
+import com.non_organic_onion.webrunner.core.state.RequestStatusState;
+import com.non_organic_onion.webrunner.core.state.RequestType;
+import com.non_organic_onion.webrunner.core.state.WebrunnerState;
+import com.non_organic_onion.webrunner.core.state.WebrunnerStateStore;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 

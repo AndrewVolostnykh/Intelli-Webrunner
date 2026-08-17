@@ -1,6 +1,6 @@
 package com.non_organic_onion.intelli.webrunner.ui;
 
-import com.non_organic_onion.intelli.webrunner.state.GlobalContextState;
+import com.non_organic_onion.webrunner.core.state.GlobalContextState;
 import com.non_organic_onion.intelli.webrunner.state.GlobalWebrunnerStateService;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeManager;

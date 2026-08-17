@@ -1,6 +1,6 @@
 package com.non_organic_onion.intelli.webrunner.ui;
 
-import com.non_organic_onion.intelli.webrunner.util.HashingService;
+import com.non_organic_onion.webrunner.core.util.HashingService;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;

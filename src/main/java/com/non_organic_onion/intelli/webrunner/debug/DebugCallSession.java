@@ -1,30 +1,20 @@
 package com.non_organic_onion.intelli.webrunner.debug;
 
-import com.non_organic_onion.intelli.webrunner.execution.HttpExecutionResponse;
-import com.non_organic_onion.intelli.webrunner.execution.HttpExecutor;
-import com.non_organic_onion.intelli.webrunner.grpc.GrpcExecutionResponse;
-import com.non_organic_onion.intelli.webrunner.grpc.GrpcExecutor;
-import com.non_organic_onion.intelli.webrunner.script.GlobalContextRuntime;
-import com.non_organic_onion.intelli.webrunner.script.ScriptContext;
-import com.non_organic_onion.intelli.webrunner.script.ScriptHelpers;
-import com.non_organic_onion.intelli.webrunner.script.ScriptLogger;
-import com.non_organic_onion.intelli.webrunner.script.ScriptRequest;
-import com.non_organic_onion.intelli.webrunner.script.ScriptRuntime;
-import com.non_organic_onion.intelli.webrunner.script.VarsStore;
-import com.non_organic_onion.intelli.webrunner.state.FormEntryState;
+import com.non_organic_onion.webrunner.core.debug.DebugCallEngine;
+import com.non_organic_onion.webrunner.core.debug.DebugStageFormatter;
+import com.non_organic_onion.webrunner.core.debug.DebugStageResult;
+import com.non_organic_onion.webrunner.core.execution.HttpExecutor;
+import com.non_organic_onion.webrunner.core.grpc.GrpcExecutor;
+import com.non_organic_onion.webrunner.core.script.GlobalContextRuntime;
+import com.non_organic_onion.webrunner.core.script.ScriptRuntime;
 import com.non_organic_onion.intelli.webrunner.state.GlobalWebrunnerStateService;
-import com.non_organic_onion.intelli.webrunner.state.HeaderEntryState;
 import com.non_organic_onion.intelli.webrunner.state.IntellijGlobalContextStore;
-import com.non_organic_onion.intelli.webrunner.state.NodeState;
-import com.non_organic_onion.intelli.webrunner.state.RequestDetailsState;
-import com.non_organic_onion.intelli.webrunner.state.RequestStatusState;
-import com.non_organic_onion.intelli.webrunner.state.RequestType;
+import com.non_organic_onion.webrunner.core.state.NodeState;
+import com.non_organic_onion.webrunner.core.state.RequestDetailsState;
+import com.non_organic_onion.webrunner.core.state.RequestStatusState;
+import com.non_organic_onion.webrunner.core.state.RequestType;
 import com.non_organic_onion.intelli.webrunner.ui.TaskbarWindowSupport;
-import com.non_organic_onion.intelli.webrunner.util.HttpStatusReasons;
-import com.non_organic_onion.intelli.webrunner.util.PayloadTypes;
-import com.non_organic_onion.intelli.webrunner.util.StateCopyUtils;
-import com.non_organic_onion.intelli.webrunner.util.TemplateEngine;
-import com.non_organic_onion.intelli.webrunner.util.UrlParamUtils;
+import com.non_organic_onion.webrunner.core.util.TemplateEngine;
 import com.intellij.execution.filters.TextConsoleBuilderFactory;
 import com.intellij.execution.ui.ConsoleView;
 import com.intellij.execution.ui.ConsoleViewContentType;
@@ -47,9 +37,6 @@ import java.awt.FlowLayout;
 import java.awt.Insets;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
 import java.util.concurrent.Future;
 
 /**
@@ -63,18 +50,9 @@ public final class DebugCallSession {
 	private final Project project;
 	private final JComponent parentComponent;
 	private final GlobalWebrunnerStateService stateService;
-	private final ScriptRuntime scriptRuntime;
-	private final TemplateEngine templateEngine;
-	private final HttpExecutor httpExecutor;
-	private final GrpcExecutor grpcExecutor;
-	private final GlobalContextRuntime globalContextRuntime;
 	private final DebugStageFormatter stageFormatter = new DebugStageFormatter();
-	private final DebugRequestPolicy requestPolicy = new DebugRequestPolicy();
-
 	private final String requestId;
-	private final RequestType requestType;
-	private final RequestDetailsState details;
-	private final RequestStatusState status;
+	private final DebugCallEngine engine;
 
 	private JFrame dialog;
 	private ConsoleView outputConsole;
@@ -84,35 +62,10 @@ public final class DebugCallSession {
 	private JButton rerunButton;
 	private JButton stopButton;
 
-	private int stepIndex = 1;
 	private volatile boolean abandoned = false;
 	private volatile int runGeneration = 0;
 	private Future<?> pendingTask;
 
-	private VarsStore vars;
-	private VarsStore globalContext;
-	private ScriptHelpers helpers;
-	private ScriptLogger logger;
-	private List<String> logs;
-	private List<String> beforeLogs = List.of();
-	private List<String> afterLogs = List.of();
-	private ScriptRequest rawRequest;
-	private ScriptRequest beforeRequest;
-	private ScriptRequest afterRequest;
-	private ScriptRequest currentRequest;
-	private String templatedBody = "";
-	private List<HeaderEntryState> templatedHeaders = List.of();
-	private List<HeaderEntryState> templatedParams = List.of();
-	private String templatedUrlBase = "";
-	private String templatedUrl = "";
-	private String templatedGrpcTarget = "";
-	private String templatedGrpcService = "";
-	private String templatedGrpcMethod = "";
-	private HttpExecutionResponse httpResponse;
-	private GrpcExecutionResponse grpcResponse;
-	private boolean beforeFailed = false;
-	private boolean requestFailed = false;
-	private String validationError;
 	private boolean outputHasContent = false;
 	private static final ConsoleViewContentType STEP_OUTPUT =
 		new ConsoleViewContentType(
@@ -149,15 +102,23 @@ public final class DebugCallSession {
 		this.project = project;
 		this.parentComponent = parentComponent;
 		this.stateService = stateService;
-		this.scriptRuntime = scriptRuntime;
-		this.templateEngine = templateEngine;
-		this.httpExecutor = httpExecutor;
-		this.grpcExecutor = grpcExecutor;
-		this.globalContextRuntime = new GlobalContextRuntime(new IntellijGlobalContextStore(stateService), scriptRuntime);
 		this.requestId = requestId;
-		this.requestType = requestType;
-		this.details = stateService.getRequestDetails(requestId);
-		this.status = stateService.getRequestStatus(requestId);
+		GlobalContextRuntime globalContextRuntime =
+			new GlobalContextRuntime(new IntellijGlobalContextStore(stateService), scriptRuntime);
+		RequestDetailsState details = stateService.getRequestDetails(requestId);
+		RequestStatusState status = stateService.getRequestStatus(requestId);
+		this.engine = new DebugCallEngine(
+			requestId,
+			requestType,
+			details,
+			status,
+			stateService.getDefaultTimeoutMillis(),
+			globalContextRuntime,
+			scriptRuntime,
+			templateEngine,
+			httpExecutor,
+			grpcExecutor
+		);
 	}
 
 	public void open() {
@@ -227,7 +188,7 @@ public final class DebugCallSession {
 		inlineRunButton.setEnabled(false);
 		int generation = runGeneration;
 		pendingTask = ApplicationManager.getApplication().executeOnPooledThread(() -> {
-			DebugStageResult result = runStage(stepIndex);
+			DebugStageResult result = engine.nextStage();
 			if (result == null || abandoned || generation != runGeneration) {
 				return;
 			}
@@ -236,21 +197,10 @@ public final class DebugCallSession {
 					return;
 				}
 				appendStage(result);
-				stepIndex++;
 				nextButton.setEnabled(result.hasNext);
 				updateInlineRunButton();
 			});
 		});
-	}
-
-	private DebugStageResult runStage(int step) {
-		return switch (step) {
-			case 1 -> buildBeforeStage();
-			case 2 -> buildResponseStage();
-			case 3 -> buildAfterStage();
-			case 4 -> buildFinalStage();
-			default -> null;
-		};
 	}
 
 	public void abandon(boolean closeDialog) {
@@ -281,7 +231,7 @@ public final class DebugCallSession {
 			pendingTask.cancel(true);
 			pendingTask = null;
 		}
-		resetExecutionState();
+		engine.reset();
 		clearOutput();
 		nextButton.setEnabled(false);
 		inlineRunButton.setEnabled(false);
@@ -299,7 +249,7 @@ public final class DebugCallSession {
 		inlineRunButton.setEnabled(false);
 		int generation = runGeneration;
 		pendingTask = ApplicationManager.getApplication().executeOnPooledThread(() -> {
-			DebugStageResult result = executeInlineScript(script);
+			DebugStageResult result = engine.executeInlineScript(script);
 			if (result == null || abandoned || generation != runGeneration) {
 				return;
 			}
@@ -311,335 +261,6 @@ public final class DebugCallSession {
 				updateInlineRunButton();
 			});
 		});
-	}
-
-	private void resetExecutionState() {
-		stepIndex = 1;
-		vars = null;
-		globalContext = null;
-		helpers = null;
-		logger = null;
-		logs = null;
-		beforeLogs = List.of();
-		afterLogs = List.of();
-		rawRequest = null;
-		beforeRequest = null;
-		afterRequest = null;
-		currentRequest = null;
-		templatedBody = "";
-		templatedHeaders = List.of();
-		templatedParams = List.of();
-		templatedUrlBase = "";
-		templatedUrl = "";
-		templatedGrpcTarget = "";
-		templatedGrpcService = "";
-		templatedGrpcMethod = "";
-		httpResponse = null;
-		grpcResponse = null;
-		beforeFailed = false;
-		requestFailed = false;
-		validationError = null;
-	}
-
-	private DebugStageResult executeInlineScript(String script) {
-		long start = System.nanoTime();
-		List<String> lines = new ArrayList<>();
-		if (vars == null || logger == null || helpers == null) {
-			lines.add("Context not ready. Run Next first.");
-			long duration = System.nanoTime() - start;
-			return new DebugStageResult("Inline Script", duration, lines, nextButton.isEnabled());
-		}
-		if (logs == null) {
-			logs = new ArrayList<>();
-		}
-		int logStart = logs.size();
-		ScriptRequest contextRequest = afterRequest != null ? afterRequest : currentRequest;
-		if (contextRequest == null) {
-			contextRequest = new ScriptRequest("", List.of(), List.of());
-		}
-		Object response = null;
-		if (requestType == RequestType.HTTP) {
-			response = httpResponse;
-		} else if (requestType == RequestType.GRPC) {
-			response = grpcResponse;
-		}
-		try {
-			scriptRuntime.runScript(
-				script,
-				new ScriptContext(vars, logger, helpers, contextRequest, rawRequest, response, globalContext)
-			);
-			globalContextRuntime.persist(globalContext);
-		} catch (Exception error) {
-			logs.add("Inline script error: " + error.getMessage());
-		}
-		List<String> scriptLogs =
-			logs.size() == logStart ? List.of() : new ArrayList<>(logs.subList(logStart, logs.size()));
-		lines.addAll(stageFormatter.formatLogs("Inline script logs", scriptLogs));
-		long duration = System.nanoTime() - start;
-		return new DebugStageResult("Inline Script", duration, lines, nextButton.isEnabled());
-	}
-
-	private DebugStageResult buildInitialStage() {
-		long start = System.nanoTime();
-		List<String> lines = new ArrayList<>();
-		lines.add("Request Id: " + requestId);
-		if (requestType == RequestType.HTTP) {
-			String method = details == null || details.method == null ? "GET" : details.method;
-			String url = details == null || details.url == null ? "" : details.url;
-			lines.add("Method: " + method);
-			lines.add("URL: " + (url.isBlank() ? "<missing>" : url));
-		} else {
-			String target = details == null || details.target == null ? "" : details.target;
-			String service = details == null || details.service == null ? "" : details.service;
-			String method = details == null || details.grpcMethod == null ? "" : details.grpcMethod;
-			lines.add("Target: " + (target.isBlank() ? "<missing>" : target));
-			lines.add("Service: " + (service.isBlank() ? "<missing>" : service));
-			lines.add("Method: " + (method.isBlank() ? "<missing>" : method));
-		}
-		ScriptRequest snapshot = new ScriptRequest(
-			status == null ? "" : status.requestBody,
-			status == null ? List.of() : status.requestHeaders,
-			status == null ? List.of() : status.requestParams
-		);
-		if (status != null) {
-			snapshot.setFormData(StateCopyUtils.cloneFormData(status.formData));
-			snapshot.setBinaryFilePath(status.binaryFilePath);
-		}
-		lines.addAll(stageFormatter.formatRequestSnapshot(snapshot));
-		long duration = System.nanoTime() - start;
-		return new DebugStageResult("Current Request", duration, lines, true);
-	}
-
-	private DebugStageResult buildBeforeStage() {
-		long start = System.nanoTime();
-		List<String> lines = new ArrayList<>();
-		String body = status == null ? "" : safe(status.requestBody);
-		List<HeaderEntryState> headers = status == null ? List.of() : status.requestHeaders;
-		List<HeaderEntryState> params = status == null ? List.of() : status.requestParams;
-		List<FormEntryState> formData = status == null ? List.of() : status.formData;
-		String binaryFilePath = status == null ? "" : safe(status.binaryFilePath);
-		String before = status == null ? "" : safe(status.beforeScript);
-
-		logs = new ArrayList<>();
-		logger = message -> logs.add(message);
-		helpers = new ScriptHelpers(logger);
-		vars = new VarsStore();
-		try {
-			globalContext = globalContextRuntime.loadAndRun(logger);
-		} catch (Exception error) {
-			logs.add("Global context error: " + error.getMessage());
-			globalContext = new VarsStore();
-		}
-		rawRequest = new ScriptRequest(body, StateCopyUtils.cloneHeaders(headers), StateCopyUtils.cloneHeaders(params));
-		rawRequest.setFormData(StateCopyUtils.cloneFormData(formData));
-		rawRequest.setBinaryFilePath(binaryFilePath);
-		beforeRequest = new ScriptRequest(body, StateCopyUtils.cloneHeaders(headers), StateCopyUtils.cloneHeaders(params));
-		beforeRequest.setFormData(StateCopyUtils.cloneFormData(formData));
-		beforeRequest.setBinaryFilePath(binaryFilePath);
-
-		validationError = requestPolicy.validateDetails(requestType, details);
-		if (validationError != null) {
-			beforeFailed = true;
-			lines.add("Error: " + validationError);
-		} else {
-			try {
-				scriptRuntime.runScript(
-					before,
-					new ScriptContext(vars, logger, helpers, beforeRequest, rawRequest, null, globalContext)
-				);
-			} catch (Exception error) {
-				logs.add("Before request error: " + error.getMessage());
-				beforeFailed = true;
-			}
-		}
-		beforeLogs = logs.isEmpty() ? List.of() : new ArrayList<>(logs);
-
-		if (!beforeFailed) {
-			Map<String, Object> varsSnapshot = globalContextRuntime.mergeForTemplates(globalContext, vars);
-			templatedBody = templateEngine.applyToBody(beforeRequest.getBody(), varsSnapshot);
-			templatedHeaders = templateEngine.applyToHeaders(beforeRequest.getHeaders(), varsSnapshot);
-			templatedParams = templateEngine.applyToParams(beforeRequest.getParams(), varsSnapshot);
-			List<FormEntryState> templatedFormData =
-				templateEngine.applyToFormData(beforeRequest.getFormData(), varsSnapshot);
-			String templatedBinaryPath = templateEngine.applyToText(
-				beforeRequest.getBinaryFilePath(),
-				varsSnapshot
-			);
-			if (requestType == RequestType.HTTP) {
-				String url = details == null || details.url == null ? "" : details.url;
-				templatedUrlBase = templateEngine.applyToText(url, varsSnapshot);
-				templatedUrl = UrlParamUtils.applyDefaultProtocol(
-					UrlParamUtils.replaceQueryParams(templatedUrlBase, templatedParams)
-				);
-			} else if (requestType == RequestType.GRPC) {
-				templatedGrpcTarget = templateEngine.applyToText(details == null ? "" : details.target, varsSnapshot);
-				templatedGrpcService = templateEngine.applyToText(details == null ? "" : details.service, varsSnapshot);
-				templatedGrpcMethod = templateEngine.applyToText(details == null ? "" : details.grpcMethod, varsSnapshot);
-			}
-			currentRequest = new ScriptRequest(templatedBody, templatedHeaders, templatedParams);
-			currentRequest.setFormData(StateCopyUtils.cloneFormData(templatedFormData));
-			currentRequest.setBinaryFilePath(templatedBinaryPath);
-		} else {
-			templatedBody = beforeRequest.getBody();
-			templatedHeaders = beforeRequest.getHeaders();
-			templatedParams = beforeRequest.getParams();
-			templatedUrlBase = details == null || details.url == null ? "" : details.url;
-			templatedUrl = templatedUrlBase;
-			templatedGrpcTarget = details == null || details.target == null ? "" : details.target;
-			templatedGrpcService = details == null || details.service == null ? "" : details.service;
-			templatedGrpcMethod = details == null || details.grpcMethod == null ? "" : details.grpcMethod;
-			currentRequest = new ScriptRequest(templatedBody, templatedHeaders, templatedParams);
-			currentRequest.setFormData(StateCopyUtils.cloneFormData(beforeRequest.getFormData()));
-			currentRequest.setBinaryFilePath(beforeRequest.getBinaryFilePath());
-		}
-		globalContextRuntime.persist(globalContext);
-
-		if (requestType == RequestType.HTTP) {
-			String method = details == null || details.method == null ? "GET" : details.method;
-			lines.add("Method: " + method);
-			lines.add("URL: " + (templatedUrl == null || templatedUrl.isBlank() ? "<missing>" : templatedUrl));
-		} else {
-			String target = templatedGrpcTarget == null ? "" : templatedGrpcTarget;
-			String service = templatedGrpcService == null ? "" : templatedGrpcService;
-			String method = templatedGrpcMethod == null ? "" : templatedGrpcMethod;
-			lines.add("Target: " + (target.isBlank() ? "<missing>" : target));
-			lines.add("Service: " + (service.isBlank() ? "<missing>" : service));
-			lines.add("Method: " + (method.isBlank() ? "<missing>" : method));
-		}
-
-		lines.add("Request:");
-		lines.addAll(stageFormatter.formatRequestSnapshot(currentRequest));
-		lines.addAll(stageFormatter.formatLogs("Before request logs", beforeLogs));
-		if (beforeFailed) {
-			lines.add("Request will not be sent.");
-		}
-
-		long duration = System.nanoTime() - start;
-		return new DebugStageResult("Sent Request", duration, lines, true);
-	}
-
-	private DebugStageResult buildResponseStage() {
-		long start = System.nanoTime();
-		List<String> lines = new ArrayList<>();
-		if (beforeFailed) {
-			lines.add("Request skipped because before request failed.");
-			long duration = System.nanoTime() - start;
-			return new DebugStageResult("Response Received", duration, lines, true);
-		}
-		try {
-			if (requestType == RequestType.HTTP) {
-				String method = details == null || details.method == null ? "GET" : details.method;
-				String payloadType = details == null ? "RAW" : details.payloadType;
-				ScriptRequest requestToSend = currentRequest == null
-					? new ScriptRequest(templatedBody, templatedHeaders, templatedParams)
-					: currentRequest;
-				templatedBody = requestToSend.getBody();
-				templatedHeaders = requestToSend.getHeaders() == null ? List.of() : requestToSend.getHeaders();
-				templatedParams = requestToSend.getParams() == null ? List.of() : requestToSend.getParams();
-				templatedUrl = UrlParamUtils.applyDefaultProtocol(
-					UrlParamUtils.replaceQueryParams(templatedUrlBase, templatedParams)
-				);
-				List<FormEntryState> formData =
-					requestToSend.getFormData() == null ? List.of() : requestToSend.getFormData();
-				String binaryPath =
-					requestToSend.getBinaryFilePath() == null ? "" : requestToSend.getBinaryFilePath();
-				httpResponse = httpExecutor.execute(
-					method,
-					templatedUrl,
-					templatedHeaders,
-					templatedBody,
-					formData,
-					binaryPath,
-					PayloadTypes.resolveType(payloadType),
-					requestPolicy.resolveTimeoutMillis(details, stateService.getDefaultTimeoutMillis())
-				);
-			} else {
-				if (currentRequest != null) {
-					templatedBody = currentRequest.getBody();
-					templatedHeaders = currentRequest.getHeaders() == null ? List.of() : currentRequest.getHeaders();
-					templatedParams = currentRequest.getParams() == null ? List.of() : currentRequest.getParams();
-				}
-				grpcResponse = grpcExecutor.execute(
-					templatedGrpcTarget,
-					templatedGrpcService,
-					templatedGrpcMethod,
-					templatedBody,
-					templatedHeaders,
-					requestPolicy.resolveTimeoutMillis(details, stateService.getDefaultTimeoutMillis())
-				);
-			}
-		} catch (InterruptedException error) {
-			Thread.currentThread().interrupt();
-			return null;
-		} catch (Exception error) {
-			requestFailed = true;
-			if (requestType == RequestType.HTTP) {
-				logs.add("Request failed: " + error.getMessage());
-			} else {
-				logs.add("gRPC request failed: " + error.getMessage());
-			}
-		}
-
-		if (requestFailed) {
-			lines.add("Request failed. No response received.");
-		} else if (requestType == RequestType.HTTP && httpResponse != null) {
-			lines.add("Status: " + HttpStatusReasons.format(httpResponse.statusCode, ""));
-			lines.addAll(stageFormatter.formatResponseSnapshot(httpResponse.body, httpResponse.headers));
-		} else if (requestType == RequestType.GRPC && grpcResponse != null) {
-			lines.add("Status: " + HttpStatusReasons.format(grpcResponse.statusCode, safe(grpcResponse.statusMessage)));
-			lines.addAll(stageFormatter.formatResponseSnapshot(grpcResponse.body, grpcResponse.headers));
-		} else {
-			lines.add("No response received.");
-		}
-
-		long duration = System.nanoTime() - start;
-		return new DebugStageResult("Response Received", duration, lines, true);
-	}
-
-	private DebugStageResult buildAfterStage() {
-		long start = System.nanoTime();
-		List<String> lines = new ArrayList<>();
-		if (beforeFailed) {
-			lines.add("After request skipped because before request failed.");
-		} else if (requestFailed || (requestType == RequestType.HTTP && httpResponse == null) ||
-			(requestType == RequestType.GRPC && grpcResponse == null)) {
-			lines.add("After request skipped because request failed.");
-		} else {
-			int logStart = logs.size();
-			String after = status == null ? "" : safe(status.afterScript);
-			afterRequest = new ScriptRequest(templatedBody, StateCopyUtils.cloneHeaders(templatedHeaders), StateCopyUtils.cloneHeaders(templatedParams));
-			if (currentRequest != null) {
-				afterRequest.setFormData(StateCopyUtils.cloneFormData(currentRequest.getFormData()));
-				afterRequest.setBinaryFilePath(currentRequest.getBinaryFilePath());
-			}
-			try {
-				Object response = requestType == RequestType.HTTP ? httpResponse : grpcResponse;
-				scriptRuntime.runScript(
-					after,
-					new ScriptContext(vars, logger, helpers, afterRequest, rawRequest, response, globalContext)
-				);
-			} catch (Exception error) {
-				logs.add("After request error: " + error.getMessage());
-			}
-			globalContextRuntime.persist(globalContext);
-			afterLogs = logs.size() == logStart ? List.of() : new ArrayList<>(logs.subList(logStart, logs.size()));
-			lines.addAll(stageFormatter.formatLogs("After request logs", afterLogs));
-		}
-		long duration = System.nanoTime() - start;
-		return new DebugStageResult("After Request Logs", duration, lines, true);
-	}
-
-	private DebugStageResult buildFinalStage() {
-		long start = System.nanoTime();
-		List<String> lines = new ArrayList<>();
-		ScriptRequest finalRequest = afterRequest != null ? afterRequest : currentRequest;
-		if (finalRequest == null) {
-			finalRequest = new ScriptRequest("", List.of(), List.of());
-		}
-		lines.addAll(stageFormatter.formatRequestSnapshot(finalRequest));
-		lines.addAll(stageFormatter.formatLogs("Logs after request", logs == null ? List.of() : logs));
-		long duration = System.nanoTime() - start;
-		return new DebugStageResult("Final State", duration, lines, false);
 	}
 
 	private void appendStage(DebugStageResult result) {
@@ -696,7 +317,7 @@ public final class DebugCallSession {
 
 	private void updateInlineRunButton() {
 		if (inlineRunButton != null) {
-			inlineRunButton.setEnabled(!abandoned && vars != null && logger != null && helpers != null);
+			inlineRunButton.setEnabled(!abandoned && engine.isInlineReady());
 		}
 	}
 
@@ -718,10 +339,6 @@ public final class DebugCallSession {
 
 	private void invokeLater(Runnable runnable) {
 		ApplicationManager.getApplication().invokeLater(runnable, ModalityState.any());
-	}
-
-	private String safe(String value) {
-		return value == null ? "" : value;
 	}
 
 }

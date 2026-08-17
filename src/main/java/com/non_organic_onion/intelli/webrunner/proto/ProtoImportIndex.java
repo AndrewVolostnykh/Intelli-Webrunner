@@ -3,6 +3,8 @@ package com.non_organic_onion.intelli.webrunner.proto;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.non_organic_onion.webrunner.core.proto.ProtoImportResolver;
+import com.non_organic_onion.webrunner.core.proto.ProtoSource;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -11,13 +13,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-final class ProtoImportIndex implements ProtoImportResolver {
+public final class ProtoImportIndex implements ProtoImportResolver {
 
 	private final Map<String, List<VirtualFile>> byPath = new HashMap<>();
 	private final List<VirtualFile> allFiles = new ArrayList<>();
 	private final String basePath;
 
-	ProtoImportIndex(
+	public ProtoImportIndex(
 		Project project,
 		Collection<VirtualFile> files
 	) {
@@ -52,7 +54,7 @@ final class ProtoImportIndex implements ProtoImportResolver {
 		return Optional.empty();
 	}
 
-	ProtoSource sourceOfRoot(VirtualFile file) {
+	public ProtoSource sourceOfRoot(VirtualFile file) {
 		return sourceOf(file).orElse(null);
 	}
 

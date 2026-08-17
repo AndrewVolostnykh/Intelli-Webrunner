@@ -1,6 +1,6 @@
 package com.non_organic_onion.intelli.webrunner.ui;
 
-import com.non_organic_onion.intelli.webrunner.state.HeaderPresetState;
+import com.non_organic_onion.webrunner.core.state.HeaderPresetState;
 
 import javax.swing.table.AbstractTableModel;
 import java.util.ArrayList;

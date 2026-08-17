@@ -1,7 +1,7 @@
 package com.non_organic_onion.intelli.webrunner.ui;
 
-import com.non_organic_onion.intelli.webrunner.state.RequestStatusState;
-import com.non_organic_onion.intelli.webrunner.state.RequestType;
+import com.non_organic_onion.webrunner.core.state.RequestStatusState;
+import com.non_organic_onion.webrunner.core.state.RequestType;
 import com.intellij.ui.components.JBTextField;
 
 import javax.swing.JCheckBox;

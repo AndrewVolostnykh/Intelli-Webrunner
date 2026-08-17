@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.ui.components.JBScrollPane;
-import com.non_organic_onion.intelli.webrunner.util.JsonTextOperations;
+import com.non_organic_onion.webrunner.core.util.JsonTextOperations;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;

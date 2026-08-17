@@ -1,6 +1,6 @@
 package com.non_organic_onion.intelli.webrunner.ui;
 
-import com.non_organic_onion.intelli.webrunner.util.JwtTokenService;
+import com.non_organic_onion.webrunner.core.util.JwtTokenService;
 import com.intellij.openapi.project.Project;
 import com.intellij.ui.components.JBScrollPane;
 

@@ -1,10 +1,10 @@
 package com.non_organic_onion.intelli.webrunner.ui;
 
 import com.non_organic_onion.intelli.webrunner.state.GlobalWebrunnerStateService;
-import com.non_organic_onion.intelli.webrunner.state.NodeState;
-import com.non_organic_onion.intelli.webrunner.state.NodeType;
-import com.non_organic_onion.intelli.webrunner.state.RequestDetailsState;
-import com.non_organic_onion.intelli.webrunner.state.RequestType;
+import com.non_organic_onion.webrunner.core.state.NodeState;
+import com.non_organic_onion.webrunner.core.state.NodeType;
+import com.non_organic_onion.webrunner.core.state.RequestDetailsState;
+import com.non_organic_onion.webrunner.core.state.RequestType;
 import com.intellij.openapi.util.IconLoader;
 import com.intellij.ui.JBColor;
 

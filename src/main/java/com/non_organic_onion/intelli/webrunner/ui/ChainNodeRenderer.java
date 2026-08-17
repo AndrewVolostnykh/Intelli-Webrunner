@@ -1,7 +1,7 @@
 package com.non_organic_onion.intelli.webrunner.ui;
 
 import com.non_organic_onion.intelli.webrunner.state.GlobalWebrunnerStateService;
-import com.non_organic_onion.intelli.webrunner.state.NodeState;
+import com.non_organic_onion.webrunner.core.state.NodeState;
 import com.intellij.ui.JBColor;
 
 import javax.swing.BorderFactory;

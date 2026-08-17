@@ -7,6 +7,14 @@ group = 'com.andrew-volostnykh.intelli.webrunner'
 version = '1.0.0'
 
 repositories {
+    mavenLocal()
+    maven {
+        url = uri('https://maven.pkg.github.com/AndrewVolostnykh/Intelli-Webrunner')
+        credentials {
+            username = findProperty('gpr.user') ?: System.getenv('GITHUB_ACTOR')
+            password = findProperty('gpr.key') ?: System.getenv('GITHUB_TOKEN')
+        }
+    }
     mavenCentral()
     intellijPlatform {
         defaultRepositories()
@@ -29,6 +37,7 @@ patchPluginXml {
 }
 
 dependencies {
+    implementation 'com.andrew-volostnykh.webrunner:webrunner-core:1.0.0'
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.2'
     implementation 'io.grpc:grpc-netty-shaded:1.63.0'
     implementation 'io.grpc:grpc-protobuf:1.63.0'
